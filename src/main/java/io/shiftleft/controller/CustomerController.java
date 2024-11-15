@@ -254,15 +254,6 @@ public class CustomerController {
 		httpResponse.getOutputStream().println("Settings Saved");
 	}
 
-	/**
-	 * Gets all customers.
-	 *
-	 * @return the customers
-	 */
-	@RequestMapping(value = "/customers", method = RequestMethod.GET)
-	public List<Customer> getCustomers() {
-		return (List<Customer>) customerRepository.findAll();
-	}
 
 	/**
 	 * Create a new customer and return in response with HTTP 201
@@ -320,6 +311,7 @@ public class CustomerController {
 	}
 
 }
+
 
 
 
