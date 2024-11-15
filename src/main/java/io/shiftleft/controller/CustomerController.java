@@ -238,7 +238,7 @@ public class CustomerController {
 
 		String cookieMD5sum = cookie[1];
 		String calcMD5Sum = DigestUtils.md5Hex(base64txt);
-		if(!SecureCompare.isEqual(cookieMD5sum, calcMD5Sum)) { // SecureCompare is a class that provides a constant-time comparison method
+		if(!cookieMD5sum.equals(calcMD5Sum)) {
 			httpResponse.getOutputStream().println("Wrong md5");
 			throw new Exception("Invalid MD5");
 		}
@@ -258,18 +258,6 @@ public class CustomerController {
 		httpResponse.getOutputStream().println("Settings Saved");
 	}
 
-
-	public Customer createCustomer(@RequestParam Customer customer, HttpServletResponse httpResponse,
-								   WebRequest request) {
-
-		Customer createdcustomer = null;
-		createdcustomer = customerRepository.save(customer);
-		httpResponse.setStatus(HttpStatus.CREATED.value());
-		httpResponse.setHeader("Location",
-				String.format("%s/customers/%s", request.getContextPath(), customer.getId()));
-
-		return createdcustomer;
-	}
 
 	/**
 	 * Update customer with given customer id.
@@ -307,6 +295,7 @@ public class CustomerController {
 	}
 
 }
+
 
 
 
