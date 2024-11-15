@@ -254,23 +254,6 @@ public class CustomerController {
 		httpResponse.getOutputStream().println("Settings Saved");
 	}
 
-
-	/**
-	 * Debug test for saving and reading a customer
-	 *
-	 * @param firstName String
-	 * @param httpResponse
-	 * @param request
-	 * @return void
-	 * @throws IOException
-	 */
-	@RequestMapping(value = "/debugEscaped", method = RequestMethod.GET)
-	public void debugEscaped(@RequestParam String firstName, HttpServletResponse httpResponse,
-					  WebRequest request) throws IOException{
-		String escaped = HtmlUtils.htmlEscape(firstName);
-		System.out.println(escaped);
-		httpResponse.getOutputStream().println(escaped);
-	}
 	/**
 	 * Gets all customers.
 	 *
@@ -337,5 +320,6 @@ public class CustomerController {
 	}
 
 }
+
 
 
