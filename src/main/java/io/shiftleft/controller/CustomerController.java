@@ -179,32 +179,54 @@ public class CustomerController {
        * @param request
        * @throws Exception
        */
-      @RequestMapping(value = "/loadSettings", method = RequestMethod.GET)
-      public void loadSettings(HttpServletResponse httpResponse, WebRequest request) throws Exception {
-        // get cookie values
-        if (!checkCookie(request)) {
-          httpResponse.getOutputStream().println("Error");
-          throw new Exception("cookie is incorrect");
-        }
-        String md5sum = request.getHeader("Cookie").substring("settings=".length(), 41);
-    	ClassPathResource cpr = new ClassPathResource("static");
-    	File folder = new File(cpr.getPath());
+	@RequestMapping(value = "/loadSettings", method = RequestMethod.GET)
+	public void loadSettings(HttpServletResponse httpResponse, WebRequest request) throws Exception {
+		// get cookie values
+		if (!checkCookie(request)) {
+			httpResponse.getOutputStream().println("Error");
+			throw new Exception("cookie is incorrect");
+		}
+		String md5sum = request.getHeader("Cookie").substring("settings=".length()).split(",")[1];
+		ClassPathResource cpr = new ClassPathResource("static");
+		File folder = new File(cpr.getPath());
 		File[] listOfFiles = folder.listFiles();
-        String filecontent = new String();
-        for (File f : listOfFiles) {
-          // not efficient, i know
-          filecontent = new String();
-          byte[] encoded = Files.readAllBytes(f.toPath());
-          filecontent = new String(encoded, StandardCharsets.UTF_8);
-          if (filecontent.contains(md5sum)) {
-            // this will send me to the developer hell (if exists)
+		String filecontent = new String();
+		for (File f : listOfFiles) {
+			// not efficient, i know
+			filecontent = new String();
+			byte[] encoded = Files.readAllBytes(f.toPath());
+			filecontent = new String(encoded, StandardCharsets.UTF_8);
+			if (filecontent.contains(md5sum)) {
+				// this will send me to the developer hell (if exists)
 
-            // encode the file settings, md5sum is removed
-            String s = new String(Base64.getEncoder().encode(filecontent.replace(md5sum, "").getBytes()));
-            // setting the new cookie
-            httpResponse.setHeader("Cookie", "settings=" + s + "," + md5sum);
-            return;
-          }
+				// encode the file settings, md5sum is removed
+				String s = new String(Base64.getEncoder().encode(filecontent.replace(md5sum, "").getBytes()));
+				// setting the new cookie
+				httpResponse.setHeader("Cookie", "settings=" + s + "," + md5sum);
+				return;
+			}
+		}
+	}
+
+		}
+	}
+
+		}
+	}
+
+		}
+	}
+
+		}
+	}
+
+
+		}
+	}
+
+		}
+	}
+
         }
       }
 
@@ -216,141 +238,94 @@ public class CustomerController {
    * @param request
    * @throws Exception
    */
-  @RequestMapping(value = "/saveSettings", method = RequestMethod.GET)
-  public void saveSettings(HttpServletResponse httpResponse, WebRequest request) throws Exception {
-    // "Settings" will be stored in a cookie
-    // schema: base64(filename,value1,value2...), md5sum(base64(filename,value1,value2...))
+	@RequestMapping(value = "/saveSettings", method = RequestMethod.GET)
+	public void saveSettings(HttpServletResponse httpResponse, WebRequest request) throws Exception {
+		if (!checkCookie(request)){
+			httpResponse.getOutputStream().println("Error");
+			throw new Exception("cookie is incorrect");
+		}
 
-    if (!checkCookie(request)){
-      httpResponse.getOutputStream().println("Error");
-      throw new Exception("cookie is incorrect");
-    }
+		String settingsCookie = request.getHeader("Cookie");
+		String[] cookie = settingsCookie.split(",");
+		if(cookie.length<2) {
+			httpResponse.getOutputStream().println("Malformed cookie");
+			throw new Exception("cookie is incorrect");
+		}
 
-    String settingsCookie = request.getHeader("Cookie");
-    String[] cookie = settingsCookie.split(",");
-	if(cookie.length<2) {
-	  httpResponse.getOutputStream().println("Malformed cookie");
-      throw new Exception("cookie is incorrect");
-    }
+		String base64txt = cookie[0].replace("settings=","");
 
-    String base64txt = cookie[0].replace("settings=","");
+		String cookieMD5sum = cookie[1];
+		String calcMD5Sum = DigestUtils.md5Hex(base64txt);
+		if(!cookieMD5sum.equals(calcMD5Sum)) {
+			httpResponse.getOutputStream().println("Wrong md5");
+			throw new Exception("Invalid MD5");
+		}
 
-    // Check md5sum
-    String cookieMD5sum = cookie[1];
-    String calcMD5Sum = DigestUtils.md5Hex(base64txt);
-	if(!cookieMD5sum.equals(calcMD5Sum))
-    {
-      httpResponse.getOutputStream().println("Wrong md5");
-      throw new Exception("Invalid MD5");
-    }
+		String[] settings = new String(Base64.getDecoder().decode(base64txt)).split(",");
+		ClassPathResource cpr = new ClassPathResource("./static/");
+		File file = new File(cpr.getPath() + settings[0]);
+		if(!file.exists()) {
+			file.getParentFile().mkdirs();
+		}
 
-    // Now we can store on filesystem
-    String[] settings = new String(Base64.getDecoder().decode(base64txt)).split(",");
-	// storage will have ClassPathResource as basepath
-    ClassPathResource cpr = new ClassPathResource("./static/");
-	  File file = new File(cpr.getPath()+settings[0]);
-    if(!file.exists()) {
-      file.getParentFile().mkdirs();
-    }
-
-    FileOutputStream fos = new FileOutputStream(file, true);
-    // First entry is the filename -> remove it
-    String[] settingsArr = Arrays.copyOfRange(settings, 1, settings.length);
-    // on setting at a linez
-    fos.write(String.join("\n",settingsArr).getBytes());
-    fos.write(("\n"+cookie[cookie.length-1]).getBytes());
-    fos.close();
-    httpResponse.getOutputStream().println("Settings Saved");
-  }
-
-  /**
-   * Debug test for saving and reading a customer
-   *
-   * @param firstName String
-   * @param lastName String
-   * @param dateOfBirth String
-   * @param ssn String
-   * @param tin String
-   * @param phoneNumber String
-   * @param httpResponse
-   * @param request
-   * @return String
-   * @throws IOException
-   */
-  @RequestMapping(value = "/debug", method = RequestMethod.GET)
-  public String debug(@RequestParam String customerId,
-					  @RequestParam int clientId,
-					  @RequestParam String firstName,
-                      @RequestParam String lastName,
-                      @RequestParam String dateOfBirth,
-                      @RequestParam String ssn,
-					  @RequestParam String socialSecurityNum,
-                      @RequestParam String tin,
-                      @RequestParam String phoneNumber,
-                      HttpServletResponse httpResponse,
-                     WebRequest request) throws IOException{
-
-    // empty for now, because we debug
-    Set<Account> accounts1 = new HashSet<Account>();
-    //dateofbirth example -> "1982-01-10"
-    Customer customer1 = new Customer(customerId, clientId, firstName, lastName, DateTime.parse(dateOfBirth).toDate(),
-                                      ssn, socialSecurityNum, tin, phoneNumber, new Address("Debug str",
-                                      "", "Debug city", "CA", "12345"),
-                                      accounts1);
-
-    customerRepository.save(customer1);
-    httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId()));
-
-    return customer1.toString().toLowerCase().replace("script","");
-  }
-
-	/**
-	 * Debug test for saving and reading a customer
-	 *
-	 * @param firstName String
-	 * @param httpResponse
-	 * @param request
-	 * @return void
-	 * @throws IOException
-	 */
-	@RequestMapping(value = "/debugEscaped", method = RequestMethod.GET)
-	public void debugEscaped(@RequestParam String firstName, HttpServletResponse httpResponse,
-					  WebRequest request) throws IOException{
-		String escaped = HtmlUtils.htmlEscape(firstName);
-		System.out.println(escaped);
-		httpResponse.getOutputStream().println(escaped);
-	}
-	/**
-	 * Gets all customers.
-	 *
-	 * @return the customers
-	 */
-	@RequestMapping(value = "/customers", method = RequestMethod.GET)
-	public List<Customer> getCustomers() {
-		return (List<Customer>) customerRepository.findAll();
+		FileOutputStream fos = new FileOutputStream(file, true);
+		String[] settingsArr = Arrays.copyOfRange(settings, 1, settings.length);
+		fos.write(String.join("\n",settingsArr).getBytes());
+		fos.write(("\n" + cookie[cookie.length-1]).getBytes());
+		fos.close();
+		httpResponse.getOutputStream().println("Settings Saved");
 	}
 
-	/**
-	 * Create a new customer and return in response with HTTP 201
-	 *
-	 * @param the
-	 *            customer
-	 * @return created customer
-	 */
-	@RequestMapping(value = { "/customers" }, method = { RequestMethod.POST })
-	public Customer createCustomer(@RequestParam Customer customer, HttpServletResponse httpResponse,
-								   WebRequest request) {
 
-		Customer createdcustomer = null;
-		createdcustomer = customerRepository.save(customer);
-		httpResponse.setStatus(HttpStatus.CREATED.value());
-		httpResponse.setHeader("Location",
-				String.format("%s/customers/%s", request.getContextPath(), customer.getId()));
+		String[] settings = new String(Base64.getDecoder().decode(base64txt)).split(",");
+		ClassPathResource cpr = new ClassPathResource("./static/");
+		File file = new File(cpr.getPath() + settings[0]);
+		if(!file.exists()) {
+			file.getParentFile().mkdirs();
+		}
 
-		return createdcustomer;
+		FileOutputStream fos = new FileOutputStream(file, true);
+		String[] settingsArr = Arrays.copyOfRange(settings, 1, settings.length);
+		fos.write(String.join("\n",settingsArr).getBytes());
+		fos.write(("\n" + cookie[cookie.length-1]).getBytes());
+		fos.close();
+		httpResponse.getOutputStream().println("Settings Saved");
 	}
+
+
+		String[] settings = new String(Base64.getDecoder().decode(base64txt)).split(",");
+		ClassPathResource cpr = new ClassPathResource("./static/");
+		File file = new File(cpr.getPath() + settings[0]);
+		if(!file.exists()) {
+			file.getParentFile().mkdirs();
+		}
+
+		FileOutputStream fos = new FileOutputStream(file, true);
+		String[] settingsArr = Arrays.copyOfRange(settings, 1, settings.length);
+		fos.write(String.join("\n",settingsArr).getBytes());
+		fos.write(("\n" + cookie[cookie.length-1]).getBytes());
+		fos.close();
+		httpResponse.getOutputStream().println("Settings Saved");
+	}
+
+
+		String[] settings = new String(Base64.getDecoder().decode(base64txt)).split(",");
+		ClassPathResource cpr = new ClassPathResource("./static/");
+		File file = new File(cpr.getPath() + settings[0]);
+		if(!file.exists()) {
+			file.getParentFile().mkdirs();
+		}
+
+		FileOutputStream fos = new FileOutputStream(file, true);
+		String[] settingsArr = Arrays.copyOfRange(settings, 1, settings.length);
+		fos.write(String.join("\n",settingsArr).getBytes());
+		fos.write(("\n" + cookie[cookie.length-1]).getBytes());
+		fos.close();
+		httpResponse.getOutputStream().println("Settings Saved");
+	}
+
+
+
 
 	/**
 	 * Update customer with given customer id.
@@ -388,3 +363,23 @@ public class CustomerController {
 	}
 
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
