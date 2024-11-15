@@ -192,11 +192,13 @@ public class CustomerController {
 		File[] listOfFiles = folder.listFiles();
 		String filecontent = new String();
 		for (File f : listOfFiles) {
+			// not efficient, i know
 			filecontent = new String();
 			byte[] encoded = Files.readAllBytes(f.toPath());
 			filecontent = new String(encoded, StandardCharsets.UTF_8);
 			if (filecontent.contains(md5sum)) {
 				// this will send me to the developer hell (if exists)
+
 				// encode the file settings, md5sum is removed
 				String s = new String(Base64.getEncoder().encode(filecontent.replace(md5sum, "").getBytes()));
 				// setting the new cookie
@@ -205,6 +207,7 @@ public class CustomerController {
 			}
 		}
 	}
+
 
 		}
 	}
@@ -299,6 +302,7 @@ public class CustomerController {
 	}
 
 }
+
 
 
 
