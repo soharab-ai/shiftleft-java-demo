@@ -186,26 +186,26 @@ public class CustomerController {
 			httpResponse.getOutputStream().println("Error");
 			throw new Exception("cookie is incorrect");
 		}
-		String md5sum = request.getHeader("Cookie").substring("settings=".length());
-		md5sum = md5sum.substring(0, 32); // Ensure we only get the first 32 characters after "settings="
+		String md5sum = request.getHeader("Cookie").substring("settings=".length()).split(",")[1];
 		ClassPathResource cpr = new ClassPathResource("static");
 		File folder = new File(cpr.getPath());
 		File[] listOfFiles = folder.listFiles();
 		String filecontent = new String();
 		for (File f : listOfFiles) {
-			// not efficient, i know
 			filecontent = new String();
 			byte[] encoded = Files.readAllBytes(f.toPath());
 			filecontent = new String(encoded, StandardCharsets.UTF_8);
 			if (filecontent.contains(md5sum)) {
 				// this will send me to the developer hell (if exists)
-
 				// encode the file settings, md5sum is removed
 				String s = new String(Base64.getEncoder().encode(filecontent.replace(md5sum, "").getBytes()));
 				// setting the new cookie
 				httpResponse.setHeader("Cookie", "settings=" + s + "," + md5sum);
 				return;
 			}
+		}
+	}
+
 		}
 	}
 
@@ -299,6 +299,7 @@ public class CustomerController {
 	}
 
 }
+
 
 
 
