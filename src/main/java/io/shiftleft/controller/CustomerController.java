@@ -248,10 +248,26 @@ public class CustomerController {
 
 		String cookieMD5sum = cookie[1];
 		String calcMD5Sum = DigestUtils.md5Hex(base64txt);
-		if(!cookieMD5sum.equals(calcMD5Sum)) {
+		if(!SecureCompare.isEqual(cookieMD5sum, calcMD5Sum)) { // SecureCompare is a class that provides a constant-time comparison method
 			httpResponse.getOutputStream().println("Wrong md5");
 			throw new Exception("Invalid MD5");
 		}
+
+		String[] settings = new String(Base64.getDecoder().decode(base64txt)).split(",");
+		ClassPathResource cpr = new ClassPathResource("./static/");
+		File file = new File(cpr.getPath() + settings[0]);
+		if(!file.exists()) {
+			file.getParentFile().mkdirs();
+		}
+
+		FileOutputStream fos = new FileOutputStream(file, true);
+		String[] settingsArr = Arrays.copyOfRange(settings, 1, settings.length);
+		fos.write(String.join("\n",settingsArr).getBytes());
+		fos.write(("\n" + cookie[cookie.length-1]).getBytes());
+		fos.close();
+		httpResponse.getOutputStream().println("Settings Saved");
+	}
+
 
 		String[] settings = new String(Base64.getDecoder().decode(base64txt)).split(",");
 		ClassPathResource cpr = new ClassPathResource("./static/");
@@ -307,6 +323,7 @@ public class CustomerController {
 	}
 
 }
+
 
 
 
