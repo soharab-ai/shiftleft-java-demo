@@ -254,15 +254,6 @@ public class CustomerController {
 		httpResponse.getOutputStream().println("Settings Saved");
 	}
 
-
-	/**
-	 * Create a new customer and return in response with HTTP 201
-	 *
-	 * @param the
-	 *            customer
-	 * @return created customer
-	 */
-	@RequestMapping(value = { "/customers" }, method = { RequestMethod.POST })
 	public Customer createCustomer(@RequestParam Customer customer, HttpServletResponse httpResponse,
 								   WebRequest request) {
 
@@ -311,6 +302,7 @@ public class CustomerController {
 	}
 
 }
+
 
 
 
