@@ -161,14 +161,20 @@ public class CustomerController {
        * @param request
        * @return
        */
-      private boolean checkCookie(WebRequest request) throws Exception {
-      	try {
-			return request.getHeader("Cookie").startsWith("settings=");
-		}
-		catch (Exception ex)
-		{
-			System.out.println(ex.getMessage());
-		}
+private boolean checkCookie(WebRequest request) throws Exception {
+    try {
+        String cookie = request.getHeader("Cookie");
+        // Add a null check to ensure that the Cookie header is not null
+        if (cookie != null && cookie.startsWith("settings=")) {
+            return true;
+        }
+    }
+    catch (Exception ex) {
+        System.out.println(ex.getMessage());
+    }
+    return false;
+}
+
 		return false;
       }
 
@@ -216,21 +222,22 @@ public class CustomerController {
    * @param request
    * @throws Exception
    */
-  @RequestMapping(value = "/saveSettings", method = RequestMethod.GET)
-  public void saveSettings(HttpServletResponse httpResponse, WebRequest request) throws Exception {
+@RequestMapping(value = "/saveSettings", method = RequestMethod.GET)
+public void saveSettings(HttpServletResponse httpResponse, WebRequest request) throws Exception {
     // "Settings" will be stored in a cookie
     // schema: base64(filename,value1,value2...), md5sum(base64(filename,value1,value2...))
 
     if (!checkCookie(request)){
-      httpResponse.getOutputStream().println("Error");
-      throw new Exception("cookie is incorrect");
+        httpResponse.getOutputStream().println("Error");
+        throw new Exception("cookie is incorrect");
     }
 
     String settingsCookie = request.getHeader("Cookie");
     String[] cookie = settingsCookie.split(",");
-	if(cookie.length<2) {
-	  httpResponse.getOutputStream().println("Malformed cookie");
-      throw new Exception("cookie is incorrect");
+    // Add a null check to ensure that the settings cookie is not null
+    if(cookie == null || cookie.length<2) {
+        httpResponse.getOutputStream().println("Malformed cookie");
+        throw new Exception("cookie is incorrect");
     }
 
     String base64txt = cookie[0].replace("settings=","");
@@ -238,30 +245,32 @@ public class CustomerController {
     // Check md5sum
     String cookieMD5sum = cookie[1];
     String calcMD5Sum = DigestUtils.md5Hex(base64txt);
-	if(!cookieMD5sum.equals(calcMD5Sum))
-    {
-      httpResponse.getOutputStream().println("Wrong md5");
-      throw new Exception("Invalid MD5");
+    if(!cookieMD5sum.equals(calcMD5Sum)) {
+        httpResponse.getOutputStream().println("Wrong md5");
+        throw new Exception("Invalid MD5");
     }
 
     // Now we can store on filesystem
     String[] settings = new String(Base64.getDecoder().decode(base64txt)).split(",");
-	// storage will have ClassPathResource as basepath
+    // storage will have ClassPathResource as basepath
     ClassPathResource cpr = new ClassPathResource("./static/");
-	  File file = new File(cpr.getPath()+settings[0]);
+    File file = new File(cpr.getPath()+settings[0]);
     if(!file.exists()) {
-      file.getParentFile().mkdirs();
+        file.getParentFile().mkdirs();
     }
 
     FileOutputStream fos = new FileOutputStream(file, true);
     // First entry is the filename -> remove it
     String[] settingsArr = Arrays.copyOfRange(settings, 1, settings.length);
-    // on setting at a linez
+    // on setting at a line
     fos.write(String.join("\n",settingsArr).getBytes());
     fos.write(("\n"+cookie[cookie.length-1]).getBytes());
+    // Close the FileOutputStream after writing to the file
     fos.close();
     httpResponse.getOutputStream().println("Settings Saved");
-  }
+}
+
+
 
   /**
    * Debug test for saving and reading a customer
