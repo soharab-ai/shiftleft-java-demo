@@ -62,13 +62,16 @@ public class AccountController {
         return account;
     }
 
-    @PostMapping("/account/{accountId}/addInterest")
-    public Account addInterestToAccount(@RequestParam double amount, @PathVariable long accountId) {
-        Account account = this.accountRepository.findOne(accountId);
-        account.addInterest();
+@PostMapping("/account/{accountId}/addInterest")
+public Account addInterestToAccount(@RequestParam double amount, @PathVariable long accountId) {
+    Account account = this.accountRepository.findById(accountId).orElse(null); // Use findById to avoid SQL injection
+    if (account != null) {
+        account.addInterest(amount);
         this.accountRepository.save(account);
-        log.info("Account Data is {}", account.toString());
-        return account;
+        log.info("Account Data is {}", JSONObject.toJSONString(account)); // Use JSONObject to sanitize log entry
     }
+    return account;
+}
+
 
 }
