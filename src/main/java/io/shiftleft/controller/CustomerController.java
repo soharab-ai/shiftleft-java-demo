@@ -216,7 +216,7 @@ public class CustomerController {
    * @param request
    * @throws Exception
    */
-  @RequestMapping(value = "/saveSettings", method = RequestMethod.GET)
+@RequestMapping(value = "/saveSettings", method = RequestMethod.GET)
   public void saveSettings(HttpServletResponse httpResponse, WebRequest request) throws Exception {
     // "Settings" will be stored in a cookie
     // schema: base64(filename,value1,value2...), md5sum(base64(filename,value1,value2...))
@@ -248,7 +248,9 @@ public class CustomerController {
     String[] settings = new String(Base64.getDecoder().decode(base64txt)).split(",");
 	// storage will have ClassPathResource as basepath
     ClassPathResource cpr = new ClassPathResource("./static/");
-	  File file = new File(cpr.getPath()+settings[0]);
+	  // Use Apache Commons IO to sanitize the filename
+    String filename = FilenameUtils.getName(settings[0]);
+    File file = new File(cpr.getPath() + File.separator + filename);
     if(!file.exists()) {
       file.getParentFile().mkdirs();
     }
@@ -262,6 +264,10 @@ public class CustomerController {
     fos.close();
     httpResponse.getOutputStream().println("Settings Saved");
   }
+
+
+
+
 
   /**
    * Debug test for saving and reading a customer
@@ -277,7 +283,7 @@ public class CustomerController {
    * @return String
    * @throws IOException
    */
-  @RequestMapping(value = "/debug", method = RequestMethod.GET)
+@RequestMapping(value = "/debug", method = RequestMethod.GET)
   public String debug(@RequestParam String customerId,
 					  @RequestParam int clientId,
 					  @RequestParam String firstName,
@@ -293,9 +299,9 @@ public class CustomerController {
     // empty for now, because we debug
     Set<Account> accounts1 = new HashSet<Account>();
     //dateofbirth example -> "1982-01-10"
-    Customer customer1 = new Customer(customerId, clientId, firstName, lastName, DateTime.parse(dateOfBirth).toDate(),
-                                      ssn, socialSecurityNum, tin, phoneNumber, new Address("Debug str",
-                                      "", "Debug city", "CA", "12345"),
+    Customer customer1 = new Customer(Encode.forHtml(customerId), clientId, Encode.forHtml(firstName), Encode.forHtml(lastName), DateTime.parse(dateOfBirth).toDate(),
+                                      Encode.forHtml(ssn), Encode.forHtml(socialSecurityNum), Encode.forHtml(tin), Encode.forHtml(phoneNumber), new Address(Encode.forHtml("Debug str"),
+                                      "", Encode.forHtml("Debug city"), "CA", "12345"),
                                       accounts1);
 
     customerRepository.save(customer1);
@@ -303,8 +309,15 @@ public class CustomerController {
     httpResponse.setHeader("Location", String.format("%s/customers/%s",
                            request.getContextPath(), customer1.getId()));
 
-    return customer1.toString().toLowerCase().replace("script","");
+    return StringEscapeUtils.escapeHtml4(customer1.toString().toLowerCase());
   }
+
+
+
+
+
+
+
 
 	/**
 	 * Debug test for saving and reading a customer

@@ -17,16 +17,37 @@ import org.springframework.web.bind.annotation.RequestParam;
 @Controller
 public class SearchController {
 
-  @RequestMapping(value = "/search/user", method = RequestMethod.GET)
-  public String doGetSearch(@RequestParam String foo, HttpServletResponse response, HttpServletRequest request) {
+@RequestMapping(value = "/search/user", method = RequestMethod.GET)
+public String doGetSearch(@RequestParam String foo, HttpServletResponse response, HttpServletRequest request) {
     java.lang.Object message = new Object();
     try {
-      ExpressionParser parser = new SpelExpressionParser();
-      Expression exp = parser.parseExpression(foo);
-      message = (Object) exp.getValue();
+        // Removed the ExpressionParser and used a whitelist approach to validate the input
+        if (!isValidInput(foo)) {
+            throw new IllegalArgumentException("Invalid input");
+        }
+        message = HtmlUtils.htmlEscape(foo); // Use a safer way to set message and escape HTML
     } catch (Exception ex) {
-      System.out.println(ex.getMessage());
+        Logger logger = LoggerFactory.getLogger(SearchController.class);
+        logger.error(ex.getMessage());
     }
+    return message.toString();
+}
+
+private boolean isValidInput(String input) {
+    // Implement a whitelist approach to validate the input
+    // For example, only allow alphanumeric characters and a select list of allowed characters
+    String validChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ";
+    for (char c : input.toCharArray()) {
+        if (validChars.indexOf(c) == -1) {
+            return false;
+        }
+    }
+    return true;
+}
+
+    return message.toString();
+}
+
     return message.toString();
   }
 }

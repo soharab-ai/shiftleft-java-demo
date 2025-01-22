@@ -28,17 +28,21 @@ public class AdminController {
   private String fail = "redirect:/";
 
   // helper
-  private boolean isAdmin(String auth)
-  {
+private boolean isAdmin(String auth)
+{
     try {
-      ByteArrayInputStream bis = new ByteArrayInputStream(Base64.getDecoder().decode(auth));
-      ObjectInputStream objectInputStream = new ObjectInputStream(bis);
-      Object authToken = objectInputStream.readObject();
-      return ((AuthToken) authToken).isAdmin();
+        ByteArrayInputStream bis = new ByteArrayInputStream(Base64.getDecoder().decode(auth));
+        ObjectInputStream objectInputStream = new ObjectInputStream(bis);
+        Object authToken = objectInputStream.readObject();
+        return ((AuthToken) authToken).isAdmin();
     } catch (Exception ex) {
-      System.out.println(" cookie cannot be deserialized: "+ex.getMessage());
-      return false;
+        System.out.println(" cookie cannot be deserialized: "+ex.getMessage());
+        return false;
     }
+}
+
+}
+
   }
 
   //
@@ -81,47 +85,63 @@ public class AdminController {
    * @return redirect to company numbers
    * @throws Exception
    */
-  @RequestMapping(value = "/admin/login", method = RequestMethod.POST)
-  public String doPostLogin(@CookieValue(value = "auth", defaultValue = "notset") String auth, @RequestBody String password, HttpServletResponse response, HttpServletRequest request) throws Exception {
+@RequestMapping(value = "/admin/login", method = RequestMethod.POST)
+public String doPostLogin(@CookieValue(value = "auth", defaultValue = "notset") String auth, @RequestBody String password, HttpServletResponse response, HttpServletRequest request) throws Exception {
     String succ = "redirect:/admin/printSecrets";
+    String fail = "fail";
+    Logger logger = LogManager.getLogger(AdminController.class);
 
     try {
-      // no cookie no fun
-      if (!auth.equals("notset")) {
-        if(isAdmin(auth)) {
-          request.getSession().setAttribute("auth",auth);
-          return succ;
+        // no cookie no fun
+        if (!auth.equals("notset")) {
+            if(isAdmin(auth)) {
+                request.getSession().setAttribute("auth",auth);
+                return succ;
+            }
         }
-      }
 
-      // split password=value
-      String[] pass = password.split("=");
-      if(pass.length!=2) {
-        return fail;
-      }
-      // compare pass
-      if(pass[1] != null && pass[1].length()>0 && pass[1].equals("shiftleftsecret"))
-      {
-        AuthToken authToken = new AuthToken(AuthToken.ADMIN);
-        ByteArrayOutputStream bos = new ByteArrayOutputStream();
-        ObjectOutputStream oos = new ObjectOutputStream(bos);
-        oos.writeObject(authToken);
-        String cookieValue = new String(Base64.getEncoder().encode(bos.toByteArray()));
-        response.addCookie(new Cookie("auth", cookieValue ));
+        // split password=value
+        String[] pass = password.split("=");
+        if(pass.length!=2 || pass[1] == null || pass[1].length()==0) {
+            logger.error("Invalid password format");
+            return fail;
+        }
+        // compare pass
+        if(BCrypt.checkpw(pass[1], "$2a$12$zVqz97HKZNQRxnDXCyGvAu/hLr7fzT.kjgMdO.3o5B1m1.z8i/l4e")))
+        {
+            AuthToken authToken = new AuthToken(AuthToken.ADMIN);
+            ByteArrayOutputStream bos = new ByteArrayOutputStream();
+            ObjectOutputStream oos = new ObjectOutputStream(bos);
+            oos.writeObject(authToken);
+            String cookieValue = new String(Base64.getEncoder().encode(bos.toByteArray()));
+            response.addCookie(new Cookie("auth", cookieValue ));
 
-        // cookie is lost after redirection
-        request.getSession().setAttribute("auth",cookieValue);
+            // cookie is lost after redirection
+            request.getSession().setAttribute("auth",cookieValue);
 
-        return succ;
-      }
-      return fail;
+            return succ;
+        } else {
+            logger.error("Invalid password");
+            return fail;
+        }
     }
     catch (Exception ex)
     {
-      ex.printStackTrace();
-      // no succ == fail
-      return fail;
+        logger.error("Error during login", ex);
+        // no succ == fail
+        return fail;
     }
+}
+
+    }
+    catch (Exception ex)
+    {
+        logger.error("Error during login", ex);
+        // no succ == fail
+        return fail;
+    }
+}
+
   }
 
   /**

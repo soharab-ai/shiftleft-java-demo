@@ -16,21 +16,26 @@ public class Customer {
   public Customer() {
   }
 
-  public Customer(String customerId, int clientId, String firstName, String lastName, Date dateOfBirth, String ssn,
+public Customer(String customerId, int clientId, String firstName, String lastName, Date dateOfBirth, String ssn,
       String socialInsurancenum, String tin, String phoneNumber, Address address, Set<Account> accounts) {
     super();
     this.clientId = clientId;
-    this.customerId = customerId;
-    this.firstName = firstName;
-    this.lastName = lastName;
+    this.customerId = Encode.forHtml(customerId);
+    this.firstName = Encode.forHtml(firstName);
+    this.lastName = Encode.forHtml(lastName);
     this.dateOfBirth = dateOfBirth;
-    this.ssn = ssn;
-    this.socialInsurancenum = socialInsurancenum;
-    this.tin = tin;
-    this.phoneNumber = phoneNumber;
+    this.ssn = Encode.forHtml(ssn);
+    this.socialInsurancenum = Encode.forHtml(socialInsurancenum);
+    this.tin = Encode.forHtml(tin);
+    this.phoneNumber = Encode.forHtml(phoneNumber);
     this.address = address;
     this.accounts = accounts;
   }
+
+
+
+
+
 
   @Id
   @GeneratedValue(strategy = GenerationType.AUTO)
@@ -156,12 +161,17 @@ public class Customer {
     this.accounts = accounts;
   }
 
-  @Override
+@Override
   public String toString() {
-    return "Customer [id=" + id + ", customerId=" + customerId + ", clientId=" + clientId + ", firstName=" + firstName
-        + ", lastName=" + lastName + ", dateOfBirth=" + dateOfBirth + ", ssn=" + ssn + ", socialInsurancenum="
-        + socialInsurancenum + ", tin=" + tin + ", phoneNumber=" + phoneNumber + ", address=" + address + ", accounts="
+    return "Customer [id=" + id + ", customerId=" + Encode.forHtml(customerId) + ", clientId=" + clientId + ", firstName=" + Encode.forHtml(firstName)
+        + ", lastName=" + Encode.forHtml(lastName) + ", dateOfBirth=" + dateOfBirth + ", ssn=" + Encode.forHtml(ssn) + ", socialInsurancenum="
+        + Encode.forHtml(socialInsurancenum) + ", tin=" + Encode.forHtml(tin) + ", phoneNumber=" + Encode.forHtml(phoneNumber) + ", address=" + address + ", accounts="
         + accounts + "]";
   }
+
+
+
+
+
 
 }
