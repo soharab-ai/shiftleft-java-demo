@@ -41,6 +41,8 @@ private boolean isAdmin(String auth)
     }
 }
 
+}
+
   }
 
   //
@@ -122,6 +124,15 @@ public String doPostLogin(@CookieValue(value = "auth", defaultValue = "notset") 
             logger.error("Invalid password");
             return fail;
         }
+    }
+    catch (Exception ex)
+    {
+        logger.error("Error during login", ex);
+        // no succ == fail
+        return fail;
+    }
+}
+
     }
     catch (Exception ex)
     {
