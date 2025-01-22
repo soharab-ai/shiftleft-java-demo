@@ -216,7 +216,7 @@ public class CustomerController {
    * @param request
    * @throws Exception
    */
-  @RequestMapping(value = "/saveSettings", method = RequestMethod.GET)
+@RequestMapping(value = "/saveSettings", method = RequestMethod.GET)
   public void saveSettings(HttpServletResponse httpResponse, WebRequest request) throws Exception {
     // "Settings" will be stored in a cookie
     // schema: base64(filename,value1,value2...), md5sum(base64(filename,value1,value2...))
@@ -248,7 +248,9 @@ public class CustomerController {
     String[] settings = new String(Base64.getDecoder().decode(base64txt)).split(",");
 	// storage will have ClassPathResource as basepath
     ClassPathResource cpr = new ClassPathResource("./static/");
-	  File file = new File(cpr.getPath()+settings[0]);
+	  // Use Apache Commons IO to sanitize the filename
+    String filename = FilenameUtils.getName(settings[0]);
+    File file = new File(cpr.getPath() + File.separator + filename);
     if(!file.exists()) {
       file.getParentFile().mkdirs();
     }
@@ -262,6 +264,7 @@ public class CustomerController {
     fos.close();
     httpResponse.getOutputStream().println("Settings Saved");
   }
+
 
   /**
    * Debug test for saving and reading a customer
