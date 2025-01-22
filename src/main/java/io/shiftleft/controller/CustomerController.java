@@ -281,7 +281,7 @@ public void saveSettings(HttpServletResponse httpResponse, WebRequest request) t
    * @return String
    * @throws IOException
    */
-  @RequestMapping(value = "/debug", method = RequestMethod.GET)
+@RequestMapping(value = "/debug", method = RequestMethod.GET)
   public String debug(@RequestParam String customerId,
 					  @RequestParam int clientId,
 					  @RequestParam String firstName,
@@ -307,8 +307,9 @@ public void saveSettings(HttpServletResponse httpResponse, WebRequest request) t
     httpResponse.setHeader("Location", String.format("%s/customers/%s",
                            request.getContextPath(), customer1.getId()));
 
-    return customer1.toString().toLowerCase().replace("script","");
+    return Encode.forHtml(customer1.toString().toLowerCase());
   }
+
 
 	/**
 	 * Debug test for saving and reading a customer
