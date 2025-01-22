@@ -284,22 +284,22 @@ public class CustomerController {
    * @throws IOException
    */
 @RequestMapping(value = "/debug", method = RequestMethod.GET)
-public String debug(@RequestParam String customerId,
-                    @RequestParam int clientId,
-                    @RequestParam String firstName,
-                    @RequestParam String lastName,
-                    @RequestParam String dateOfBirth,
-                    @RequestParam String ssn,
-                    @RequestParam String socialSecurityNum,
-                    @RequestParam String tin,
-                    @RequestParam String phoneNumber,
-                    HttpServletResponse httpResponse,
-                    WebRequest request) throws IOException {
+  public String debug(@RequestParam String customerId,
+					  @RequestParam int clientId,
+					  @RequestParam String firstName,
+                      @RequestParam String lastName,
+                      @RequestParam String dateOfBirth,
+                      @RequestParam String ssn,
+					  @RequestParam String socialSecurityNum,
+                      @RequestParam String tin,
+                      @RequestParam String phoneNumber,
+                      HttpServletResponse httpResponse,
+                     WebRequest request) throws IOException{
 
     // empty for now, because we debug
     Set<Account> accounts1 = new HashSet<Account>();
     //dateofbirth example -> "1982-01-10"
-    Customer customer1 = new Customer(customerId, clientId, Encode.forHtml(firstName), Encode.forHtml(lastName), DateTime.parse(dateOfBirth).toDate(),
+    Customer customer1 = new Customer(Encode.forHtml(customerId), clientId, Encode.forHtml(firstName), Encode.forHtml(lastName), DateTime.parse(dateOfBirth).toDate(),
                                       Encode.forHtml(ssn), Encode.forHtml(socialSecurityNum), Encode.forHtml(tin), Encode.forHtml(phoneNumber), new Address(Encode.forHtml("Debug str"),
                                       "", Encode.forHtml("Debug city"), "CA", "12345"),
                                       accounts1);
@@ -307,10 +307,11 @@ public String debug(@RequestParam String customerId,
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
     httpResponse.setHeader("Location", String.format("%s/customers/%s",
-                            request.getContextPath(), customer1.getId()));
+                           request.getContextPath(), customer1.getId()));
 
-    return Encode.forHtml(customer1.toString()).toLowerCase();
-}
+    return StringEscapeUtils.escapeHtml4(customer1.toString().toLowerCase());
+  }
+
 
 
 
