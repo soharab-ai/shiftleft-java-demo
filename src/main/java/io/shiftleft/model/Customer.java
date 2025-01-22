@@ -30,7 +30,8 @@ public Customer(String customerId, int clientId, String firstName, String lastNa
     this.phoneNumber = phoneNumber;
     this.address = address;
     this.accounts = accounts;
-}
+  }
+
 
 
   @Id
@@ -159,12 +160,12 @@ public Customer(String customerId, int clientId, String firstName, String lastNa
 
 @Override
 public String toString() {
-    // Using OWASP Encoder to prevent XSS
-    return "Customer [id=" + id + ", customerId=" + Encode.forHtml(customerId) + ", clientId=" + clientId + ", firstName=" + Encode.forHtml(firstName)
-        + ", lastName=" + Encode.forHtml(lastName) + ", dateOfBirth=" + dateOfBirth + ", ssn=" + Encode.forHtml(ssn) + ", socialInsurancenum="
-        + Encode.forHtml(socialInsurancenum) + ", tin=" + Encode.forHtml(tin) + ", phoneNumber=" + Encode.forHtml(phoneNumber) + ", address=" + address + ", accounts="
+    return "Customer [id=" + id + ", customerId=" + customerId + ", clientId=" + clientId + ", firstName=" + firstName
+        + ", lastName=" + lastName + ", dateOfBirth=" + dateOfBirth + ", ssn=" + ssn + ", socialInsurancenum="
+        + socialInsurancenum + ", tin=" + tin + ", phoneNumber=" + phoneNumber + ", address=" + address + ", accounts="
         + accounts + "]";
-}
+  }
+
 
 
 }
