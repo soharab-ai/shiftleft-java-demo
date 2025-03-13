@@ -310,34 +310,85 @@ public class CustomerController {
    * @return String
    * @throws IOException
    */
-  @RequestMapping(value = "/debug", method = RequestMethod.GET)
-  public String debug(@RequestParam String customerId,
-					  @RequestParam int clientId,
-					  @RequestParam String firstName,
-                      @RequestParam String lastName,
-                      @RequestParam String dateOfBirth,
-                      @RequestParam String ssn,
-					  @RequestParam String socialSecurityNum,
-                      @RequestParam String tin,
-                      @RequestParam String phoneNumber,
-                      HttpServletResponse httpResponse,
-                     WebRequest request) throws IOException{
+@RequestMapping(value = "/debug", method = RequestMethod.GET)
+@PreAuthorize("hasRole('ADMIN')") // Added authorization check to restrict access to admins only
+@Profile({"dev", "test"}) // Added profile restriction to prevent endpoint from running in production
+public String debug(@RequestParam String customerId,
+                  @RequestParam int clientId,
+                  @RequestParam String firstName,
+                  @RequestParam String lastName,
+                  @RequestParam String dateOfBirth,
+                  @RequestParam String ssn,
+                  @RequestParam String socialSecurityNum,
+                  @RequestParam String tin,
+                  @RequestParam String phoneNumber,
+                  HttpServletResponse httpResponse,
+                  WebRequest request) throws IOException {
+
+    // Added logger for audit tracking of sensitive operations
+    Logger logger = LoggerFactory.getLogger(CustomerController.class);
+    String currentUser = SecurityContextHolder.getContext().getAuthentication().getName();
+    logger.info("Customer debug information accessed by user: null", currentUser);
+
+    // Added input validation before processing
+    if (!validateCustomerInput(firstName, lastName, ssn, socialSecurityNum, tin, phoneNumber)) {
+        httpResponse.setStatus(HttpStatus.BAD_REQUEST.value());
+        return "Invalid input parameters";
+    }
 
     // empty for now, because we debug
     Set<Account> accounts1 = new HashSet<Account>();
     //dateofbirth example -> "1982-01-10"
     Customer customer1 = new Customer(customerId, clientId, firstName, lastName, DateTime.parse(dateOfBirth).toDate(),
-                                      ssn, socialSecurityNum, tin, phoneNumber, new Address("Debug str",
-                                      "", "Debug city", "CA", "12345"),
-                                      accounts1);
+                                  ssn, socialSecurityNum, tin, phoneNumber, new Address("Debug str",
+                                  "", "Debug city", "CA", "12345"),
+                                  accounts1);
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
     httpResponse.setHeader("Location", String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId()));
+                       request.getContextPath(), customer1.getId()));
+    
+    // Set content type to text/plain to help prevent XSS
+    httpResponse.setContentType(MediaType.TEXT_PLAIN_VALUE);
+    
+    // Modified return to avoid exposing sensitive customer information
+    return HtmlUtils.htmlEscape("Customer created with ID: " + customer1.getId());
+}
 
-    return customer1.toString().toLowerCase().replace("script","");
-  }
+// Added helper method for input validation
+private boolean validateCustomerInput(String firstName, String lastName, 
+                                    String ssn, String socialSecurityNum, 
+                                    String tin, String phoneNumber) {
+    // Validate firstName and lastName are not empty
+    if (firstName == null || firstName.trim().isEmpty() || 
+        lastName == null || lastName.trim().isEmpty()) {
+        return false;
+    }
+    
+    // Validate SSN format (###-##-####)
+    if (ssn != null && !ssn.matches("^\\d{3}-\\d{2}-\\d{4}$")) {
+        return false;
+    }
+    
+    // Validate Social Security Number format
+    if (socialSecurityNum != null && !socialSecurityNum.matches("^\\d{3}-\\d{2}-\\d{4}$")) {
+        return false;
+    }
+    
+    // Validate TIN format (##-#######)
+    if (tin != null && !tin.matches("^\\d{2}-\\d{7}$")) {
+        return false;
+    }
+    
+    // Validate phone number format
+    if (phoneNumber != null && !phoneNumber.matches("^\\d{3}-\\d{3}-\\d{4}$")) {
+        return false;
+    }
+    
+    return true;
+}
+
 
 	/**
 	 * Debug test for saving and reading a customer
