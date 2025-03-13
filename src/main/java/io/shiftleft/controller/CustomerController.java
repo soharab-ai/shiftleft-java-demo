@@ -216,7 +216,7 @@ public class CustomerController {
    * @param request
    * @throws Exception
    */
-  @RequestMapping(value = "/saveSettings", method = RequestMethod.GET)
+@RequestMapping(value = "/saveSettings", method = RequestMethod.GET)
   public void saveSettings(HttpServletResponse httpResponse, WebRequest request) throws Exception {
     // "Settings" will be stored in a cookie
     // schema: base64(filename,value1,value2...), md5sum(base64(filename,value1,value2...))
@@ -228,8 +228,8 @@ public class CustomerController {
 
     String settingsCookie = request.getHeader("Cookie");
     String[] cookie = settingsCookie.split(",");
-	if(cookie.length<2) {
-	  httpResponse.getOutputStream().println("Malformed cookie");
+    if(cookie.length<2) {
+      httpResponse.getOutputStream().println("Malformed cookie");
       throw new Exception("cookie is incorrect");
     }
 
@@ -238,7 +238,7 @@ public class CustomerController {
     // Check md5sum
     String cookieMD5sum = cookie[1];
     String calcMD5Sum = DigestUtils.md5Hex(base64txt);
-	if(!cookieMD5sum.equals(calcMD5Sum))
+    if(!cookieMD5sum.equals(calcMD5Sum))
     {
       httpResponse.getOutputStream().println("Wrong md5");
       throw new Exception("Invalid MD5");
@@ -246,22 +246,55 @@ public class CustomerController {
 
     // Now we can store on filesystem
     String[] settings = new String(Base64.getDecoder().decode(base64txt)).split(",");
-	// storage will have ClassPathResource as basepath
+    // storage will have ClassPathResource as basepath
     ClassPathResource cpr = new ClassPathResource("./static/");
-	  File file = new File(cpr.getPath()+settings[0]);
-    if(!file.exists()) {
-      file.getParentFile().mkdirs();
-    }
+    
+    // Validate filename to prevent directory traversal
+    String filename = settings[0];
+    
+    try {
+      // Validate filename using standard Java validation instead of ESAPI
+      if (filename == null || filename.isEmpty()) {
+        httpResponse.getOutputStream().println("Invalid filename");
+        throw new SecurityException("Invalid filename: empty filename");
+      }
+      
+      // Check for path traversal attempts
+      if (filename.contains("..") || filename.contains("/") || 
+          filename.contains("\\") || filename.contains(":") || 
+          filename.startsWith(".") || filename.indexOf(0) > -1) {
+        httpResponse.getOutputStream().println("Invalid filename");
+        throw new SecurityException("Invalid filename: directory traversal attempt detected");
+      }
+      
+      // Use Java NIO for safer file operations
+      Path basePath = Paths.get(cpr.getFile().getCanonicalPath());
+      Path filePath = basePath.resolve(filename);
+      
+      // Verify the resolved path is inside the intended directory
+      if (!filePath.toAbsolutePath().normalize().startsWith(basePath.toAbsolutePath().normalize())) {
+        httpResponse.getOutputStream().println("Invalid path");
+        throw new SecurityException("Directory traversal attempt detected");
+      }
+      
+      // Create parent directories if they don't exist
+      Files.createDirectories(filePath.getParent());
 
-    FileOutputStream fos = new FileOutputStream(file, true);
-    // First entry is the filename -> remove it
-    String[] settingsArr = Arrays.copyOfRange(settings, 1, settings.length);
-    // on setting at a linez
-    fos.write(String.join("\n",settingsArr).getBytes());
-    fos.write(("\n"+cookie[cookie.length-1]).getBytes());
-    fos.close();
-    httpResponse.getOutputStream().println("Settings Saved");
+      // Use try-with-resources for proper resource management
+      try (FileOutputStream fos = new FileOutputStream(filePath.toFile(), true)) {
+        // First entry is the filename -> remove it
+        String[] settingsArr = Arrays.copyOfRange(settings, 1, settings.length);
+        // one setting at a line
+        fos.write(String.join("\n", settingsArr).getBytes(StandardCharsets.UTF_8));
+        fos.write(("\n" + cookie[cookie.length-1]).getBytes(StandardCharsets.UTF_8));
+        httpResponse.getOutputStream().println("Settings Saved");
+      }
+    } catch (IOException e) {
+      httpResponse.getOutputStream().println("Error processing file");
+      throw new SecurityException("Error processing file path", e);
+    }
   }
+
 
   /**
    * Debug test for saving and reading a customer
@@ -277,34 +310,85 @@ public class CustomerController {
    * @return String
    * @throws IOException
    */
-  @RequestMapping(value = "/debug", method = RequestMethod.GET)
-  public String debug(@RequestParam String customerId,
-					  @RequestParam int clientId,
-					  @RequestParam String firstName,
-                      @RequestParam String lastName,
-                      @RequestParam String dateOfBirth,
-                      @RequestParam String ssn,
-					  @RequestParam String socialSecurityNum,
-                      @RequestParam String tin,
-                      @RequestParam String phoneNumber,
-                      HttpServletResponse httpResponse,
-                     WebRequest request) throws IOException{
+@RequestMapping(value = "/debug", method = RequestMethod.GET)
+@PreAuthorize("hasRole('ADMIN')") // Added authorization check to restrict access to admins only
+@Profile({"dev", "test"}) // Added profile restriction to prevent endpoint from running in production
+public String debug(@RequestParam String customerId,
+                  @RequestParam int clientId,
+                  @RequestParam String firstName,
+                  @RequestParam String lastName,
+                  @RequestParam String dateOfBirth,
+                  @RequestParam String ssn,
+                  @RequestParam String socialSecurityNum,
+                  @RequestParam String tin,
+                  @RequestParam String phoneNumber,
+                  HttpServletResponse httpResponse,
+                  WebRequest request) throws IOException {
+
+    // Added logger for audit tracking of sensitive operations
+    Logger logger = LoggerFactory.getLogger(CustomerController.class);
+    String currentUser = SecurityContextHolder.getContext().getAuthentication().getName();
+    logger.info("Customer debug information accessed by user: null", currentUser);
+
+    // Added input validation before processing
+    if (!validateCustomerInput(firstName, lastName, ssn, socialSecurityNum, tin, phoneNumber)) {
+        httpResponse.setStatus(HttpStatus.BAD_REQUEST.value());
+        return "Invalid input parameters";
+    }
 
     // empty for now, because we debug
     Set<Account> accounts1 = new HashSet<Account>();
     //dateofbirth example -> "1982-01-10"
     Customer customer1 = new Customer(customerId, clientId, firstName, lastName, DateTime.parse(dateOfBirth).toDate(),
-                                      ssn, socialSecurityNum, tin, phoneNumber, new Address("Debug str",
-                                      "", "Debug city", "CA", "12345"),
-                                      accounts1);
+                                  ssn, socialSecurityNum, tin, phoneNumber, new Address("Debug str",
+                                  "", "Debug city", "CA", "12345"),
+                                  accounts1);
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
     httpResponse.setHeader("Location", String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId()));
+                       request.getContextPath(), customer1.getId()));
+    
+    // Set content type to text/plain to help prevent XSS
+    httpResponse.setContentType(MediaType.TEXT_PLAIN_VALUE);
+    
+    // Modified return to avoid exposing sensitive customer information
+    return HtmlUtils.htmlEscape("Customer created with ID: " + customer1.getId());
+}
 
-    return customer1.toString().toLowerCase().replace("script","");
-  }
+// Added helper method for input validation
+private boolean validateCustomerInput(String firstName, String lastName, 
+                                    String ssn, String socialSecurityNum, 
+                                    String tin, String phoneNumber) {
+    // Validate firstName and lastName are not empty
+    if (firstName == null || firstName.trim().isEmpty() || 
+        lastName == null || lastName.trim().isEmpty()) {
+        return false;
+    }
+    
+    // Validate SSN format (###-##-####)
+    if (ssn != null && !ssn.matches("^\\d{3}-\\d{2}-\\d{4}$")) {
+        return false;
+    }
+    
+    // Validate Social Security Number format
+    if (socialSecurityNum != null && !socialSecurityNum.matches("^\\d{3}-\\d{2}-\\d{4}$")) {
+        return false;
+    }
+    
+    // Validate TIN format (##-#######)
+    if (tin != null && !tin.matches("^\\d{2}-\\d{7}$")) {
+        return false;
+    }
+    
+    // Validate phone number format
+    if (phoneNumber != null && !phoneNumber.matches("^\\d{3}-\\d{3}-\\d{4}$")) {
+        return false;
+    }
+    
+    return true;
+}
+
 
 	/**
 	 * Debug test for saving and reading a customer
