@@ -278,33 +278,78 @@ public class CustomerController {
    * @throws IOException
 /**
  * Debug endpoint for customer data - restricted to dev environment and admin users only
-// Changed to POST method to protect sensitive data from being exposed in URLs
-// Added @Profile to prevent accidental use in production
-@Profile({"dev", "test"})
-@RequestMapping(value = "/debug", method = RequestMethod.POST)
-public String debug(
-    // Added validation constraints for all fields
-    @NotBlank(message = "Customer ID is required") @Pattern(regexp = "^[a-zA-Z0-9]+$") String customerId,
-    @NotNull(message = "Client ID is required") int clientId,
-    @NotBlank(message = "First name is required") @Pattern(regexp = "^[a-zA-Z\\s-']+$") String firstName,
-    @NotBlank(message = "Last name is required") @Pattern(regexp = "^[a-zA-Z\\s-']+$") String lastName,
-    @NotBlank(message = "Date of birth is required") @Pattern(regexp = "^\\d{4}-\\d{2}-\\d{2}$") String dateOfBirth,
-    // Removed redundant SSN parameter, keeping only socialSecurityNum
-    @NotBlank(message = "Social security number is required") @Pattern(regexp = "^\\d{3}-\\d{2}-\\d{4}$") String socialSecurityNum,
-    @Pattern(regexp = "^\\d{2}-\\d{7}$", message = "TIN must be in format XX-XXXXXXX") String tin,
-    @NotBlank(message = "Phone number is required") @Pattern(regexp = "^\\d{3}-\\d{3}-\\d{4}$") String phoneNumber,
-    HttpServletResponse httpResponse,
-    WebRequest request,
-    BindingResult bindingResult) throws IOException {
+@RequestMapping(value = "/debug", method = RequestMethod.GET, produces = MediaType.APPLICATION_JSON_VALUE)
+@ResponseBody
+@Validated
+public ResponseEntity<Customer> debug(
+                  @RequestParam @NotBlank(message = "Customer ID is required") String customerId,
+                  @RequestParam int clientId,
+                  @RequestParam @NotBlank(message = "First name is required") String firstName,
+                  @RequestParam @NotBlank(message = "Last name is required") String lastName,
+                  @RequestParam @NotBlank(message = "Date of birth is required") 
+                     @Pattern(regexp = "\\d{4}-\\d{2}-\\d{2}", message = "Date format should be YYYY-MM-DD") String dateOfBirth,
+                  @RequestParam String ssn,
+                  @RequestParam String socialSecurityNum,
+                  @RequestParam String tin,
+                  @RequestParam String phoneNumber,
+                  HttpServletResponse httpResponse,
+                  WebRequest request) throws IOException {
 
-    // Added validation result check
-    if (bindingResult.hasErrors()) {
-        httpResponse.setStatus(HttpStatus.BAD_REQUEST.value());
-        return "Validation failed: " + bindingResult.getAllErrors();
+    // Sanitize all input parameters to prevent XSS
+    // Note: Added input sanitization to prevent XSS and other injection attacks
+    customerId = StringEscapeUtils.escapeHtml4(customerId.trim());
+    firstName = StringEscapeUtils.escapeHtml4(firstName.trim());
+    lastName = StringEscapeUtils.escapeHtml4(lastName.trim());
+    dateOfBirth = StringEscapeUtils.escapeHtml4(dateOfBirth.trim());
+    
+    if (ssn != null) ssn = StringEscapeUtils.escapeHtml4(ssn.trim());
+    if (socialSecurityNum != null) socialSecurityNum = StringEscapeUtils.escapeHtml4(socialSecurityNum.trim());
+    if (tin != null) tin = StringEscapeUtils.escapeHtml4(tin.trim());
+    if (phoneNumber != null) phoneNumber = StringEscapeUtils.escapeHtml4(phoneNumber.trim());
+    
+    // Additional validation beyond @NotBlank annotations
+    if (!StringUtils.hasText(customerId) || !StringUtils.hasText(firstName) || 
+        !StringUtils.hasText(lastName) || !StringUtils.hasText(dateOfBirth)) {
+        return ResponseEntity.badRequest().build();
     }
     
-    // Added warning about debugging endpoint
-    logger.warn("Debug endpoint accessed - this should not be used in production");
+    try {
+        // Parse date to validate format using Java 8's java.time API
+        LocalDate parsedDate = LocalDate.parse(dateOfBirth, DateTimeFormatter.ISO_LOCAL_DATE);
+        
+        // Create customer with sanitized inputs
+        Set<Account> accounts = new HashSet<Account>();
+        Customer customer = new Customer(customerId, clientId, firstName, lastName, 
+                                      java.sql.Date.valueOf(parsedDate), // Convert to java.sql.Date
+                                      ssn, socialSecurityNum, tin, phoneNumber, new Address("Debug str",
+                                      "", "Debug city", "CA", "12345"),
+                                      accounts);
+
+        customerRepository.save(customer);
+        
+        // Add security headers with stronger CSP policy
+        // Note: Enhanced security headers to prevent XSS and other common attacks
+        httpResponse.setHeader("Content-Security-Policy", 
+            "default-src 'self'; script-src 'self'; object-src 'none'; frame-ancestors 'none'");
+        httpResponse.setHeader("X-Content-Type-Options", "nosniff");
+        httpResponse.setHeader("X-XSS-Protection", "1; mode=block");
+        httpResponse.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+        httpResponse.setHeader("Cache-Control", "no-store, no-cache");
+        httpResponse.setHeader("Pragma", "no-cache");
+        httpResponse.setHeader("X-Frame-Options", "DENY");
+        httpResponse.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+        
+        // Return structured data with appropriate status code
+        return ResponseEntity
+                .status(HttpStatus.CREATED)
+                .header("Location", String.format("%s/customers/%s", request.getContextPath(), customer.getId()))
+                .body(customer);
+    } catch (DateTimeParseException e) {
+        // Log the error - using proper sanitization to prevent log injection
+        logger.error("Invalid date format: null", Encode.forJava(dateOfBirth));
+        return ResponseEntity.badRequest().build();
+    }
+}
 
     // Empty for now, because we debug
     Set<Account> accounts1 = new HashSet<Account>();
