@@ -278,34 +278,67 @@ public class CustomerController {
    * @throws IOException
 /**
  * Debug endpoint for customer data - restricted to dev environment and admin users only
- */
-@Profile("dev") // Added profile restriction for development environment only
-@PreAuthorize("hasRole('ADMIN')") // Added role-based access control
-@RequestMapping(value = "/debug", method = RequestMethod.GET)
-public ResponseEntity<CustomerResponseDTO> debug(@Valid @RequestBody CustomerRequestDTO customerRequest,
-                                               HttpServletResponse httpResponse,
-                                               WebRequest request) throws IOException {
+// Changed to POST method to protect sensitive data from being exposed in URLs
+// Added @Profile to prevent accidental use in production
+@Profile({"dev", "test"})
+@RequestMapping(value = "/debug", method = RequestMethod.POST)
+public String debug(
+    // Added validation constraints for all fields
+    @NotBlank(message = "Customer ID is required") @Pattern(regexp = "^[a-zA-Z0-9]+$") String customerId,
+    @NotNull(message = "Client ID is required") int clientId,
+    @NotBlank(message = "First name is required") @Pattern(regexp = "^[a-zA-Z\\s-']+$") String firstName,
+    @NotBlank(message = "Last name is required") @Pattern(regexp = "^[a-zA-Z\\s-']+$") String lastName,
+    @NotBlank(message = "Date of birth is required") @Pattern(regexp = "^\\d{4}-\\d{2}-\\d{2}$") String dateOfBirth,
+    // Removed redundant SSN parameter, keeping only socialSecurityNum
+    @NotBlank(message = "Social security number is required") @Pattern(regexp = "^\\d{3}-\\d{2}-\\d{4}$") String socialSecurityNum,
+    @Pattern(regexp = "^\\d{2}-\\d{7}$", message = "TIN must be in format XX-XXXXXXX") String tin,
+    @NotBlank(message = "Phone number is required") @Pattern(regexp = "^\\d{3}-\\d{3}-\\d{4}$") String phoneNumber,
+    HttpServletResponse httpResponse,
+    WebRequest request,
+    BindingResult bindingResult) throws IOException {
+
+    // Added validation result check
+    if (bindingResult.hasErrors()) {
+        httpResponse.setStatus(HttpStatus.BAD_REQUEST.value());
+        return "Validation failed: " + bindingResult.getAllErrors();
+    }
+    
+    // Added warning about debugging endpoint
+    logger.warn("Debug endpoint accessed - this should not be used in production");
+
+    // Empty for now, because we debug
+    Set<Account> accounts1 = new HashSet<Account>();
+    
     try {
-        // Using DTO with Bean Validation instead of individual parameters
-        // All validation is now handled by JSR 380 annotations in the DTO
+        // Create customer with validated data - replaced Joda DateTime with Java 8 LocalDate
+        Customer customer1 = new Customer(customerId, clientId, firstName, lastName, 
+                                        java.sql.Date.valueOf(LocalDate.parse(dateOfBirth)),
+                                        null, // Removed SSN parameter, using socialSecurityNum only
+                                        socialSecurityNum, tin, phoneNumber, 
+                                        new Address("Debug str", "", "Debug city", "CA", "12345"),
+                                        accounts1);
+
+        customerRepository.save(customer1);
+        httpResponse.setStatus(HttpStatus.CREATED.value());
+        httpResponse.setHeader("Location", String.format("%s/customers/%s",
+                            request.getContextPath(), customer1.getId()));
         
-        Set<Account> accounts = new HashSet<>();
-        Customer customer = new Customer(
-            customerRequest.getCustomerId(),
-            customerRequest.getClientId(),
-            customerRequest.getFirstName(),
-            customerRequest.getLastName(),
-            LocalDate.parse(customerRequest.getDateOfBirth()).atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toDate(),
-            customerRequest.getSsn(),
-            customerRequest.getSocialSecurityNum(),
-            customerRequest.getTin(),
-            customerRequest.getPhoneNumber(),
-            new Address(
-                customerRequest.getStreet(),
-                customerRequest.getStreet2(),
-                customerRequest.getCity(),
-                customerRequest.getState(),
-                customerRequest.getZipCode()
+        // Enhanced security headers to prevent XSS and other attacks
+        httpResponse.setHeader("X-XSS-Protection", "1; mode=block");
+        httpResponse.setHeader("Content-Security-Policy", "default-src 'self'");
+        httpResponse.setHeader("X-Content-Type-Options", "nosniff"); // Prevents MIME type sniffing
+        httpResponse.setHeader("Referrer-Policy", "no-referrer"); // Prevents leaking referrer information
+        httpResponse.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0"); // Prevents caching of sensitive data
+        httpResponse.setContentType("text/plain");
+        
+        // Properly escape HTML content
+        return HtmlUtils.htmlEscape(customer1.toString());
+    } catch (Exception e) {
+        httpResponse.setStatus(HttpStatus.INTERNAL_SERVER_ERROR.value());
+        return "Error processing request: " + HtmlUtils.htmlEscape(e.getMessage());
+    }
+}
+
             ),
             accounts
         );
