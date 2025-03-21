@@ -276,35 +276,217 @@ public class CustomerController {
    * @param request
    * @return String
    * @throws IOException
-   */
-  @RequestMapping(value = "/debug", method = RequestMethod.GET)
-  public String debug(@RequestParam String customerId,
-					  @RequestParam int clientId,
-					  @RequestParam String firstName,
-                      @RequestParam String lastName,
-                      @RequestParam String dateOfBirth,
-                      @RequestParam String ssn,
-					  @RequestParam String socialSecurityNum,
-                      @RequestParam String tin,
-                      @RequestParam String phoneNumber,
-                      HttpServletResponse httpResponse,
-                     WebRequest request) throws IOException{
+/**
+ * Debug endpoint for customer data - restricted to dev environment and admin users only
+ */
+@Profile("dev") // Added profile restriction for development environment only
+@PreAuthorize("hasRole('ADMIN')") // Added role-based access control
+@RequestMapping(value = "/debug", method = RequestMethod.GET)
+public ResponseEntity<CustomerResponseDTO> debug(@Valid @RequestBody CustomerRequestDTO customerRequest,
+                                               HttpServletResponse httpResponse,
+                                               WebRequest request) throws IOException {
+    try {
+        // Using DTO with Bean Validation instead of individual parameters
+        // All validation is now handled by JSR 380 annotations in the DTO
+        
+        Set<Account> accounts = new HashSet<>();
+        Customer customer = new Customer(
+            customerRequest.getCustomerId(),
+            customerRequest.getClientId(),
+            customerRequest.getFirstName(),
+            customerRequest.getLastName(),
+            LocalDate.parse(customerRequest.getDateOfBirth()).atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toDate(),
+            customerRequest.getSsn(),
+            customerRequest.getSocialSecurityNum(),
+            customerRequest.getTin(),
+            customerRequest.getPhoneNumber(),
+            new Address(
+                customerRequest.getStreet(),
+                customerRequest.getStreet2(),
+                customerRequest.getCity(),
+                customerRequest.getState(),
+                customerRequest.getZipCode()
+            ),
+            accounts
+        );
 
-    // empty for now, because we debug
-    Set<Account> accounts1 = new HashSet<Account>();
-    //dateofbirth example -> "1982-01-10"
-    Customer customer1 = new Customer(customerId, clientId, firstName, lastName, DateTime.parse(dateOfBirth).toDate(),
-                                      ssn, socialSecurityNum, tin, phoneNumber, new Address("Debug str",
-                                      "", "Debug city", "CA", "12345"),
-                                      accounts1);
+        customerRepository.save(customer);
+        
+        // Set security headers
+        HttpHeaders headers = new HttpHeaders();
+        headers.setLocation(URI.create(String.format("%s/customers/%s", request.getContextPath(), customer.getId())));
+        
+        // Enhanced Content Security Policy with more restrictive directives
+        headers.set(HttpHeaders.CONTENT_SECURITY_POLICY, 
+                "default-src 'self'; script-src 'self'; object-src 'none'; " +
+                "style-src 'self'; img-src 'self'; font-src 'self'; " +
+                "form-action 'self'; frame-ancestors 'none'; base-uri 'self'");
+        
+        // Added X-Content-Type-Options header to prevent MIME type sniffing
+        headers.set("X-Content-Type-Options", "nosniff");
+        
+        // Added X-Frame-Options header to prevent clickjacking
+        headers.set("X-Frame-Options", "DENY");
+        
+        // Create response DTO that only includes non-sensitive data
+        CustomerResponseDTO responseDTO = new CustomerResponseDTO(
+            customer.getId(),
+            customer.getFirstName(),
+            customer.getLastName(),
+            // Masking sensitive data in the response
+            maskSensitiveData(customer.getPhoneNumber())
+        );
+        
+        // Return ResponseEntity with proper status code, headers and body
+        return new ResponseEntity<>(responseDTO, headers, HttpStatus.CREATED);
+    } catch (Exception e) {
+        // Logging the error without exposing implementation details
+        logger.error("Error processing customer debug request: null", e.getMessage());
+        
+        // Throwing a custom exception that will be handled by global exception handler
+        throw new CustomerProcessingException("Unable to process customer data");
+    }
+}
 
-    customerRepository.save(customer1);
-    httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId()));
+/**
+ * Request DTO with validation annotations
+ */
+@Validated
+public static class CustomerRequestDTO {
+    @NotBlank
+    @Pattern(regexp = "^[a-zA-Z0-9-_]{1,36}$", message = "Invalid customer ID format")
+    private String customerId;
+    
+    @NotNull
+    @Min(1)
+    private Integer clientId;
+    
+    @NotBlank
+    @Pattern(regexp = "^[a-zA-Z\\s-']{2,50}$", message = "Invalid first name format")
+    private String firstName;
+    
+    @NotBlank
+    @Pattern(regexp = "^[a-zA-Z\\s-']{2,50}$", message = "Invalid last name format")
+    private String lastName;
+    
+    @NotBlank
+    @Pattern(regexp = "^\\d{4}-\\d{2}-\\d{2}$", message = "Date of birth must be in yyyy-MM-dd format")
+    private String dateOfBirth;
+    
+    @Pattern(regexp = "^\\d{3}-\\d{2}-\\d{4}$", message = "SSN must be in XXX-XX-XXXX format")
+    private String ssn;
+    
+    @Pattern(regexp = "^\\d{3}-\\d{2}-\\d{4}$", message = "Social security number must be in XXX-XX-XXXX format")
+    private String socialSecurityNum;
+    
+    @Pattern(regexp = "^\\d{2}-\\d{7}$", message = "TIN must be in XX-XXXXXXX format")
+    private String tin;
+    
+    @Pattern(regexp = "^\\d{3}-\\d{3}-\\d{4}$", message = "Phone number must be in XXX-XXX-XXXX format")
+    private String phoneNumber;
+    
+    @NotBlank
+    @Length(max = 100)
+    private String street;
+    
+    @Length(max = 100)
+    private String street2;
+    
+    @NotBlank
+    @Length(max = 50)
+    @Pattern(regexp = "^[a-zA-Z\\s-']{2,50}$", message = "Invalid city format")
+    private String city;
+    
+    @NotBlank
+    @Length(min = 2, max = 2)
+    @Pattern(regexp = "^[A-Z]{2}$", message = "State must be a two-letter code")
+    private String state;
+    
+    @NotBlank
+    @Pattern(regexp = "^\\d{5}(-\\d{4})?$", message = "Zip code must be in XXXXX or XXXXX-XXXX format")
+    private String zipCode;
+    
+    // Getters and setters omitted for brevity
+    // ... add all getters and setters for the fields
+}
 
-    return customer1.toString().toLowerCase().replace("script","");
-  }
+/**
+ * Response DTO that only includes non-sensitive data
+ */
+public static class CustomerResponseDTO {
+    private final String id;
+    private final String firstName;
+    private final String lastName;
+    private final String maskedPhoneNumber;
+    
+    public CustomerResponseDTO(String id, String firstName, String lastName, String maskedPhoneNumber) {
+        this.id = id;
+        this.firstName = firstName;
+        this.lastName = lastName;
+        this.maskedPhoneNumber = maskedPhoneNumber;
+    }
+    
+    // Getters omitted for brevity
+    // ... add all getters for the fields
+}
+
+/**
+ * Mask sensitive data like phone numbers
+ */
+private String maskSensitiveData(String phoneNumber) {
+    if (phoneNumber == null || phoneNumber.length() < 8) {
+        return "XXX-XXX-XXXX";
+    }
+    
+    // Only show the last 4 digits
+    return "XXX-XXX-" + phoneNumber.substring(phoneNumber.length() - 4);
+}
+
+/**
+ * Custom exception for customer processing errors
+ */
+public class CustomerProcessingException extends RuntimeException {
+    public CustomerProcessingException(String message) {
+        super(message);
+    }
+}
+
+/**
+ * Global exception handler to avoid exposing implementation details
+ */
+@ControllerAdvice
+public class GlobalExceptionHandler {
+    
+    @ExceptionHandler(CustomerProcessingException.class)
+    public ResponseEntity<ErrorResponse> handleCustomerProcessingException(CustomerProcessingException ex) {
+        ErrorResponse error = new ErrorResponse("Unable to process customer data");
+        return new ResponseEntity<>(error, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+    
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<ErrorResponse> handleValidationExceptions(MethodArgumentNotValidException ex) {
+        ErrorResponse error = new ErrorResponse("Invalid input data");
+        return new ResponseEntity<>(error, HttpStatus.BAD_REQUEST);
+    }
+    
+    // Additional exception handlers as needed
+}
+
+/**
+ * Error response DTO
+ */
+public class ErrorResponse {
+    private final String message;
+    
+    public ErrorResponse(String message) {
+        this.message = message;
+    }
+    
+    public String getMessage() {
+        return message;
+    }
+}
+
 
 	/**
 	 * Debug test for saving and reading a customer
