@@ -278,34 +278,95 @@ public void saveSettings(HttpServletResponse httpResponse, WebRequest request) t
     if (settings.length < 2) {
       httpResponse.getOutputStream().println("Error: Invalid settings format");
       logger.warning(Logger.SECURITY_FAILURE, "Invalid settings format");
-private static final Logger logger = LoggerFactory.getLogger(CustomerController.class);
-private static final Pattern INPUT_PATTERN = Pattern.compile("^[a-zA-Z0-9\\s\\-\\.]+$");
+@RequestMapping(value = "/debug", method = RequestMethod.GET, produces = MediaType.TEXT_HTML_VALUE)
+@PreAuthorize("hasRole('ADMIN')") // Added authorization control
+@Profile("dev") // Restricted to development environment only
+@Validated
+public String debug(
+        @RequestParam @Pattern(regexp = "^[A-Za-z0-9]{1,50}$", message = "Invalid customer ID format") String customerId,
+        @RequestParam int clientId,
+        @RequestParam @Pattern(regexp = "^[A-Za-z- ']{1,50}$", message = "Invalid first name") String firstName,
+        @RequestParam @Pattern(regexp = "^[A-Za-z- ']{1,50}$", message = "Invalid last name") String lastName,
+        @RequestParam @Pattern(regexp = "^\\d{4}-\\d{2}-\\d{2}$", message = "Invalid date format (YYYY-MM-DD)") String dateOfBirth,
+        @RequestParam @Pattern(regexp = "^\\d{3}-\\d{2}-\\d{4}$", message = "Invalid SSN format") String ssn,
+        @RequestParam @Pattern(regexp = "^\\d{3}-\\d{2}-\\d{4}$", message = "Invalid Social Security Number format") String socialSecurityNum,
+        @RequestParam @Pattern(regexp = "^\\d{9}$", message = "Invalid TIN format") String tin,
+        @RequestParam @Pattern(regexp = "^\\d{3}-\\d{3}-\\d{4}$", message = "Invalid phone number format") String phoneNumber,
+        HttpServletResponse httpResponse,
+        WebRequest request) throws IOException {
 
-@RequestMapping(value = "/debug", method = RequestMethod.GET, produces = MediaType.APPLICATION_JSON_VALUE)
-public String debug(@RequestParam String customerId,
-                  @RequestParam int clientId,
-                  @RequestParam String firstName,
-                  @RequestParam String lastName,
-                  @RequestParam String dateOfBirth,
-                  @RequestParam String ssn,
-                  @RequestParam String socialSecurityNum,
-                  @RequestParam String tin,
-                  @RequestParam String phoneNumber,
-                  HttpServletResponse httpResponse,
-                  WebRequest request) throws IOException {
+    // Input validation before processing
+    validateCustomerData(customerId, firstName, lastName, dateOfBirth, ssn, socialSecurityNum, tin, phoneNumber);
 
-    // Validate inputs before processing
-    if (!validateInputs(customerId, firstName, lastName, dateOfBirth, ssn, socialSecurityNum, tin, phoneNumber)) {
-        httpResponse.setStatus(HttpStatus.BAD_REQUEST.value());
-        return "{\"error\": \"Invalid input parameters\"}";
+    Set<Account> accounts1 = new HashSet<Account>();
+    //dateofbirth example -> "1982-01-10"
+    LocalDate birthDate = LocalDate.parse(dateOfBirth);
+    Customer customer1 = new Customer(customerId, clientId, firstName, lastName, java.sql.Date.valueOf(birthDate),
+                                      ssn, socialSecurityNum, tin, phoneNumber, new Address("Debug str",
+                                      "", "Debug city", "CA", "12345"),
+                                      accounts1);
+
+    customerRepository.save(customer1);
+    httpResponse.setStatus(HttpStatus.CREATED.value());
+    httpResponse.setHeader("Location", String.format("%s/customers/%s",
+                           request.getContextPath(), customer1.getId()));
+    
+    // Enhanced security headers
+    httpResponse.setHeader("Content-Security-Policy", 
+        "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; " +
+        "font-src 'self'; connect-src 'self'; frame-src 'none'; object-src 'none';");
+    httpResponse.setHeader("X-XSS-Protection", "1; mode=block");
+    httpResponse.setHeader("X-Content-Type-Options", "nosniff");
+    
+    // Creating structured HTML response with properly encoded fields instead of toString()
+    return generateStructuredHtmlResponse(customer1);
+}
+
+/**
+ * Validates customer data beyond annotation-based validation
+ */
+private void validateCustomerData(String customerId, String firstName, String lastName, 
+                                 String dateOfBirth, String ssn, String socialSecurityNum, 
+                                 String tin, String phoneNumber) {
+    // Additional complex validation logic can be implemented here
+    // For example, checking if date is valid, not in the future, etc.
+    LocalDate birthDate = LocalDate.parse(dateOfBirth);
+    if (birthDate.isAfter(LocalDate.now())) {
+        throw new IllegalArgumentException("Date of birth cannot be in the future");
+    }
+}
+
+/**
+ * Generates a structured HTML response with properly encoded customer data
+ */
+private String generateStructuredHtmlResponse(Customer customer) {
+    StringBuilder html = new StringBuilder();
+    html.append("<!DOCTYPE html><html><head><title>Customer Debug Information</title>");
+    html.append("<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'self'\">");
+    html.append("</head><body>");
+    html.append("<h1>Customer Information</h1>");
+    html.append("<div><strong>ID:</strong> ").append(Encode.forHtml(customer.getId())).append("</div>");
+    html.append("<div><strong>Client ID:</strong> ").append(customer.getClientId()).append("</div>");
+    html.append("<div><strong>Name:</strong> ").append(Encode.forHtml(customer.getFirstName()))
+        .append(" ").append(Encode.forHtml(customer.getLastName())).append("</div>");
+    html.append("<div><strong>Date of Birth:</strong> ").append(Encode.forHtml(customer.getDateOfBirth().toString())).append("</div>");
+    
+    // Don't display full SSN/TIN in HTML - mask sensitive data
+    html.append("<div><strong>SSN:</strong> XXX-XX-").append(Encode.forHtml(customer.getSsn().substring(7))).append("</div>");
+    html.append("<div><strong>Phone:</strong> ").append(Encode.forHtml(customer.getPhoneNumber())).append("</div>");
+    
+    if (customer.getAddress() != null) {
+        html.append("<h2>Address</h2>");
+        html.append("<div>").append(Encode.forHtml(customer.getAddress().getStreet())).append("</div>");
+        html.append("<div>").append(Encode.forHtml(customer.getAddress().getCity())).append(", ")
+            .append(Encode.forHtml(customer.getAddress().getState())).append(" ")
+            .append(Encode.forHtml(customer.getAddress().getZipcode())).append("</div>");
     }
     
-    // Sanitize inputs to prevent XSS attacks
-    customerId = sanitizeInput(customerId);
-    firstName = sanitizeInput(firstName);
-    lastName = sanitizeInput(lastName);
-    dateOfBirth = sanitizeInput(dateOfBirth);
-    ssn = sanitizeInput(ssn);
+    html.append("</body></html>");
+    return html.toString();
+}
+
     socialSecurityNum = sanitizeInput(socialSecurityNum);
     tin = sanitizeInput(tin);
     phoneNumber = sanitizeInput(phoneNumber);
