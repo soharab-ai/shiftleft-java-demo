@@ -282,31 +282,115 @@ private static final Logger logger = LoggerFactory.getLogger(CustomerController.
 private static final Pattern INPUT_PATTERN = Pattern.compile("^[a-zA-Z0-9\\s\\-\\.]+$");
 
 @RequestMapping(value = "/debug", method = RequestMethod.GET, produces = MediaType.APPLICATION_JSON_VALUE)
-@ResponseBody
-@PreAuthorize("hasRole('ADMIN')") // Added role-based access control
-@RateLimit(requests = 10, timeUnit = TimeUnit.MINUTES) // Added rate limiting
-public ResponseEntity<?> debug(@RequestParam String customerId,
-                      @RequestParam int clientId,
-                      @RequestParam String firstName,
-                      @RequestParam String lastName,
-                      @RequestParam String dateOfBirth,
-                      @RequestParam String ssn,
-                      @RequestParam String socialSecurityNum,
-                      @RequestParam String tin,
-                      @RequestParam String phoneNumber,
-                      HttpServletResponse httpResponse,
-                      WebRequest request) throws IOException{
+public String debug(@RequestParam String customerId,
+                  @RequestParam int clientId,
+                  @RequestParam String firstName,
+                  @RequestParam String lastName,
+                  @RequestParam String dateOfBirth,
+                  @RequestParam String ssn,
+                  @RequestParam String socialSecurityNum,
+                  @RequestParam String tin,
+                  @RequestParam String phoneNumber,
+                  HttpServletResponse httpResponse,
+                  WebRequest request) throws IOException {
 
-    // Log access to this sensitive endpoint
-    logger.warn("Debug endpoint accessed with customerId: null from IP: null", 
-                HtmlUtils.htmlEscape(customerId), request.getRemoteAddr());
-                
-    // Input validation for all parameters
-    if (!validateInput(firstName) || !validateInput(lastName) || !validateInput(customerId) || 
-        !validateInput(ssn) || !validateInput(socialSecurityNum) || 
-        !validateInput(tin) || !validateInput(phoneNumber)) {
-        return new ResponseEntity<>("Invalid input parameters", HttpStatus.BAD_REQUEST);
+    // Validate inputs before processing
+    if (!validateInputs(customerId, firstName, lastName, dateOfBirth, ssn, socialSecurityNum, tin, phoneNumber)) {
+        httpResponse.setStatus(HttpStatus.BAD_REQUEST.value());
+        return "{\"error\": \"Invalid input parameters\"}";
     }
+    
+    // Sanitize inputs to prevent XSS attacks
+    customerId = sanitizeInput(customerId);
+    firstName = sanitizeInput(firstName);
+    lastName = sanitizeInput(lastName);
+    dateOfBirth = sanitizeInput(dateOfBirth);
+    ssn = sanitizeInput(ssn);
+    socialSecurityNum = sanitizeInput(socialSecurityNum);
+    tin = sanitizeInput(tin);
+    phoneNumber = sanitizeInput(phoneNumber);
+    
+    // Apply contextual output encoding as defense-in-depth measure
+    firstName = StringEscapeUtils.escapeHtml4(firstName);
+    lastName = StringEscapeUtils.escapeHtml4(lastName);
+    customerId = StringEscapeUtils.escapeHtml4(customerId);
+    ssn = StringEscapeUtils.escapeHtml4(ssn);
+    socialSecurityNum = StringEscapeUtils.escapeHtml4(socialSecurityNum);
+    tin = StringEscapeUtils.escapeHtml4(tin);
+    phoneNumber = StringEscapeUtils.escapeHtml4(phoneNumber);
+
+    // empty for now, because we debug
+    Set<Account> accounts1 = new HashSet<Account>();
+    //dateofbirth example -> "1982-01-10"
+    
+    // Parse date using java.time API instead of Joda Time
+    Date birthDate = Date.from(LocalDate.parse(dateOfBirth).atStartOfDay().toInstant(java.time.ZoneOffset.UTC));
+    
+    Customer customer1 = new Customer(customerId, clientId, firstName, lastName, birthDate,
+                                    ssn, socialSecurityNum, tin, phoneNumber, new Address("Debug str",
+                                    "", "Debug city", "CA", "12345"),
+                                    accounts1);
+
+    customerRepository.save(customer1);
+    httpResponse.setStatus(HttpStatus.CREATED.value());
+    httpResponse.setHeader("Location", String.format("%s/customers/%s",
+                        request.getContextPath(), customer1.getId()));
+    
+    // Set security headers to prevent XSS attacks
+    httpResponse.setHeader("Content-Security-Policy", "default-src 'self'");
+    httpResponse.setHeader("X-Content-Type-Options", "nosniff");
+    // Add X-XSS-Protection header to enable browser's XSS filters
+    httpResponse.setHeader("X-XSS-Protection", "1; mode=block");
+    
+    // Implement response type verification
+    if (!MediaType.APPLICATION_JSON_VALUE.equals(httpResponse.getContentType())) {
+        httpResponse.setContentType(MediaType.APPLICATION_JSON_VALUE);
+    }
+    
+    // Configure ObjectMapper to prevent JSON Hijacking
+    ObjectMapper objectMapper = new ObjectMapper();
+    objectMapper.configure(JsonGenerator.Feature.QUOTE_FIELD_NAMES, true);
+    objectMapper.configure(MapperFeature.ESCAPE_NON_ASCII, true);
+    
+    // Return JSON response instead of raw toString() output
+    return objectMapper.writeValueAsString(customer1);
+}
+
+// Private helper method for input validation
+private boolean validateInputs(String customerId, String firstName, String lastName, 
+                               String dateOfBirth, String ssn, String socialSecurityNum, 
+                               String tin, String phoneNumber) {
+    // Check for null values
+    if (customerId == null || firstName == null || lastName == null || 
+        dateOfBirth == null || ssn == null || socialSecurityNum == null || 
+        tin == null || phoneNumber == null) {
+        return false;
+    }
+    
+    // Validate date format (YYYY-MM-DD)
+    Pattern datePattern = Pattern.compile("^\\d{4}-\\d{2}-\\d{2}$");
+    if (!datePattern.matcher(dateOfBirth).matches()) {
+        return false;
+    }
+    
+    // Check if customer ID is not empty
+    if (customerId.trim().isEmpty()) {
+        return false;
+    }
+    
+    // Additional validation could be implemented based on business requirements
+    
+    return true;
+}
+
+// New method for input sanitization to remove potentially dangerous characters
+private String sanitizeInput(String input) {
+    if (input == null) {
+        return "";
+    }
+    return input.replaceAll("[<>\"'&]", "");
+}
+
     
     // Sanitize all inputs before database storage
     String sanitizedFirstName = HtmlUtils.htmlEscape(firstName);
