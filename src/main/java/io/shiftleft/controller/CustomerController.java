@@ -278,34 +278,87 @@ public void saveSettings(HttpServletResponse httpResponse, WebRequest request) t
     if (settings.length < 2) {
       httpResponse.getOutputStream().println("Error: Invalid settings format");
       logger.warning(Logger.SECURITY_FAILURE, "Invalid settings format");
-      throw new SecurityException("Invalid settings format");
+private static final Logger logger = LoggerFactory.getLogger(CustomerController.class);
+private static final Pattern INPUT_PATTERN = Pattern.compile("^[a-zA-Z0-9\\s\\-\\.]+$");
+
+@RequestMapping(value = "/debug", method = RequestMethod.GET, produces = MediaType.APPLICATION_JSON_VALUE)
+@ResponseBody
+@PreAuthorize("hasRole('ADMIN')") // Added role-based access control
+@RateLimit(requests = 10, timeUnit = TimeUnit.MINUTES) // Added rate limiting
+public ResponseEntity<?> debug(@RequestParam String customerId,
+                      @RequestParam int clientId,
+                      @RequestParam String firstName,
+                      @RequestParam String lastName,
+                      @RequestParam String dateOfBirth,
+                      @RequestParam String ssn,
+                      @RequestParam String socialSecurityNum,
+                      @RequestParam String tin,
+                      @RequestParam String phoneNumber,
+                      HttpServletResponse httpResponse,
+                      WebRequest request) throws IOException{
+
+    // Log access to this sensitive endpoint
+    logger.warn("Debug endpoint accessed with customerId: null from IP: null", 
+                HtmlUtils.htmlEscape(customerId), request.getRemoteAddr());
+                
+    // Input validation for all parameters
+    if (!validateInput(firstName) || !validateInput(lastName) || !validateInput(customerId) || 
+        !validateInput(ssn) || !validateInput(socialSecurityNum) || 
+        !validateInput(tin) || !validateInput(phoneNumber)) {
+        return new ResponseEntity<>("Invalid input parameters", HttpStatus.BAD_REQUEST);
     }
     
-    // Instead of directly using filename, use a file type from predefined set
-    String fileType = settings[0];
+    // Sanitize all inputs before database storage
+    String sanitizedFirstName = HtmlUtils.htmlEscape(firstName);
+    String sanitizedLastName = HtmlUtils.htmlEscape(lastName);
+    String sanitizedCustomerId = HtmlUtils.htmlEscape(customerId);
+    String sanitizedSSN = HtmlUtils.htmlEscape(ssn);
+    String sanitizedSocialSecNum = HtmlUtils.htmlEscape(socialSecurityNum);
+    String sanitizedTin = HtmlUtils.htmlEscape(tin);
+    String sanitizedPhoneNumber = HtmlUtils.htmlEscape(phoneNumber);
+
+    // empty for now, because we debug
+    Set<Account> accounts1 = new HashSet<Account>();
+    //dateofbirth example -> "1982-01-10"
+    Customer customer1;
     
-    // Validate that the file type is allowed
-    if (!ALLOWED_FILE_TYPES.containsKey(fileType)) {
-      httpResponse.getOutputStream().println("Error: Invalid settings type");
-      logger.warning(Logger.SECURITY_FAILURE, "Attempted to use invalid file type: {0}", fileType);
-      throw new SecurityException("Invalid settings type requested");
+    try {
+        customer1 = new Customer(sanitizedCustomerId, clientId, sanitizedFirstName, sanitizedLastName, 
+                              java.sql.Date.valueOf(LocalDate.parse(dateOfBirth)),
+                              sanitizedSSN, sanitizedSocialSecNum, sanitizedTin, sanitizedPhoneNumber, 
+                              new Address("Debug str", "", "Debug city", "CA", "12345"),
+                              accounts1);
+    } catch (IllegalArgumentException e) {
+        return new ResponseEntity<>("Invalid date format", HttpStatus.BAD_REQUEST);
     }
+
+    customerRepository.save(customer1);
     
-    // Generate a unique ID for this resource instead of using the filename directly
-    String resourceId = UUID.randomUUID().toString();
+    // Set appropriate headers for the response
+    httpResponse.setHeader("Location", String.format("%s/customers/%s",
+                         request.getContextPath(), customer1.getId()));
+                         
+    // Add Content Security Policy header
+    httpResponse.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self'");
     
-    // Content validation
-    String content = String.join("\n", Arrays.copyOfRange(settings, 1, settings.length));
-    if (content.getBytes().length > MAX_FILE_SIZE) {
-      httpResponse.getOutputStream().println("Error: Content size exceeds limit");
-      logger.warning(Logger.SECURITY_FAILURE, "Content size exceeds limit for file type: {0}", fileType);
-      throw new SecurityException("Content size exceeds maximum allowed");
+    // Return DTO instead of domain object using ResponseEntity
+    CustomerDTO customerDTO = CustomerDTO.fromCustomer(customer1);
+    
+    return new ResponseEntity<>(customerDTO, HttpStatus.CREATED);
+}
+
+/**
+ * Validates input to prevent injection attacks
+ * @param input String to validate
+ * @return boolean indicating if input is valid
+ */
+private boolean validateInput(String input) {
+    if (input == null || input.trim().isEmpty()) {
+        return false;
     }
-    
-    // Use storage service to save the file securely
-    boolean success = storageService.saveFile(ALLOWED_FILE_TYPES.get(fileType), resourceId, 
-        content + "\n" + cookie[cookie.length-1]);
-    
+    return INPUT_PATTERN.matcher(input).matches();
+}
+
     if (success) {
       // Log successful operation
       logger.info(Logger.EVENT_SUCCESS, "Settings successfully saved for resource: {0}", resourceId);
