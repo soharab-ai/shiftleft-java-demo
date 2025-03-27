@@ -217,51 +217,131 @@ public class CustomerController {
    * @throws Exception
    */
   @RequestMapping(value = "/saveSettings", method = RequestMethod.GET)
-  public void saveSettings(HttpServletResponse httpResponse, WebRequest request) throws Exception {
-    // "Settings" will be stored in a cookie
-    // schema: base64(filename,value1,value2...), md5sum(base64(filename,value1,value2...))
+// Allowed file types mapping with corresponding filesystem locations
+private static final Map<String, String> ALLOWED_FILE_TYPES = new HashMap<>();
+static {
+  ALLOWED_FILE_TYPES.put("user_settings", "settings/user");
+  ALLOWED_FILE_TYPES.put("app_settings", "settings/application");
+  ALLOWED_FILE_TYPES.put("system_settings", "settings/system");
+}
 
-    if (!checkCookie(request)){
-      httpResponse.getOutputStream().println("Error");
-      throw new Exception("cookie is incorrect");
+// Maximum file size in bytes (1MB)
+private static final int MAX_FILE_SIZE = 1_048_576;
+
+// Storage service for file operations
+@Autowired
+private StorageService storageService;
+
+// ESAPI Logger for secure logging
+private final Logger logger = ESAPI.getLogger(getClass());
+
+@RequestMapping(value = "/saveSettings", method = RequestMethod.GET)
+public void saveSettings(HttpServletResponse httpResponse, WebRequest request) throws Exception {
+  try {
+    // "Settings" will be stored in a cookie
+    // schema: base64(fileType,value1,value2...), md5sum(base64(fileType,value1,value2...))
+
+    if (!checkCookie(request)) {
+      httpResponse.getOutputStream().println("Error: Invalid authentication");
+      logger.error(Logger.SECURITY_FAILURE, "Cookie validation failed in saveSettings");
+      throw new SecurityException("Cookie authentication failed");
     }
 
     String settingsCookie = request.getHeader("Cookie");
-    String[] cookie = settingsCookie.split(",");
-	if(cookie.length<2) {
-	  httpResponse.getOutputStream().println("Malformed cookie");
-      throw new Exception("cookie is incorrect");
+    // Sanitize input using ESAPI
+    String sanitizedCookie = ESAPI.encoder().encodeForHTML(settingsCookie);
+    
+    String[] cookie = sanitizedCookie.split(",");
+    if (cookie.length < 2) {
+      httpResponse.getOutputStream().println("Error: Invalid request format");
+      logger.warning(Logger.SECURITY_FAILURE, "Malformed cookie detected: {0}", sanitizedCookie);
+      throw new SecurityException("Invalid cookie format");
     }
 
-    String base64txt = cookie[0].replace("settings=","");
+    String base64txt = cookie[0].replace("settings=", "");
 
     // Check md5sum
     String cookieMD5sum = cookie[1];
     String calcMD5Sum = DigestUtils.md5Hex(base64txt);
-	if(!cookieMD5sum.equals(calcMD5Sum))
-    {
-      httpResponse.getOutputStream().println("Wrong md5");
-      throw new Exception("Invalid MD5");
+    if (!cookieMD5sum.equals(calcMD5Sum)) {
+      httpResponse.getOutputStream().println("Error: Data integrity check failed");
+      logger.warning(Logger.SECURITY_FAILURE, "MD5 validation failed for settings");
+      throw new SecurityException("Invalid MD5 hash");
     }
 
-    // Now we can store on filesystem
-    String[] settings = new String(Base64.getDecoder().decode(base64txt)).split(",");
-	// storage will have ClassPathResource as basepath
-    ClassPathResource cpr = new ClassPathResource("./static/");
-	  File file = new File(cpr.getPath()+settings[0]);
-    if(!file.exists()) {
-      file.getParentFile().mkdirs();
+    // Now we can process the data
+    String decodedSettings = new String(Base64.getDecoder().decode(base64txt));
+    // Mark as tainted input and sanitize
+    String sanitizedSettings = ESAPI.encoder().encodeForHTML(decodedSettings);
+    String[] settings = sanitizedSettings.split(",");
+    
+    if (settings.length < 2) {
+      httpResponse.getOutputStream().println("Error: Invalid settings format");
+      logger.warning(Logger.SECURITY_FAILURE, "Invalid settings format");
+      throw new SecurityException("Invalid settings format");
     }
-
-    FileOutputStream fos = new FileOutputStream(file, true);
-    // First entry is the filename -> remove it
-    String[] settingsArr = Arrays.copyOfRange(settings, 1, settings.length);
-    // on setting at a linez
-    fos.write(String.join("\n",settingsArr).getBytes());
-    fos.write(("\n"+cookie[cookie.length-1]).getBytes());
-    fos.close();
-    httpResponse.getOutputStream().println("Settings Saved");
+    
+    // Instead of directly using filename, use a file type from predefined set
+    String fileType = settings[0];
+    
+    // Validate that the file type is allowed
+    if (!ALLOWED_FILE_TYPES.containsKey(fileType)) {
+      httpResponse.getOutputStream().println("Error: Invalid settings type");
+      logger.warning(Logger.SECURITY_FAILURE, "Attempted to use invalid file type: {0}", fileType);
+      throw new SecurityException("Invalid settings type requested");
+    }
+    
+    // Generate a unique ID for this resource instead of using the filename directly
+    String resourceId = UUID.randomUUID().toString();
+    
+    // Content validation
+    String content = String.join("\n", Arrays.copyOfRange(settings, 1, settings.length));
+    if (content.getBytes().length > MAX_FILE_SIZE) {
+      httpResponse.getOutputStream().println("Error: Content size exceeds limit");
+      logger.warning(Logger.SECURITY_FAILURE, "Content size exceeds limit for file type: {0}", fileType);
+      throw new SecurityException("Content size exceeds maximum allowed");
+    }
+    
+    // Use storage service to save the file securely
+    boolean success = storageService.saveFile(ALLOWED_FILE_TYPES.get(fileType), resourceId, 
+        content + "\n" + cookie[cookie.length-1]);
+    
+    if (success) {
+      // Log successful operation
+      logger.info(Logger.EVENT_SUCCESS, "Settings successfully saved for resource: {0}", resourceId);
+      httpResponse.getOutputStream().println("Settings Saved");
+    } else {
+      httpResponse.getOutputStream().println("Error: Could not save settings");
+      logger.error(Logger.SECURITY_FAILURE, "Failed to save settings for resource: {0}", resourceId);
+      throw new Exception("Failed to save settings");
+    }
+    
+  } catch (SecurityException se) {
+    // Rethrow security exceptions
+    logger.error(Logger.SECURITY_FAILURE, "Security exception in saveSettings: {0}", se.getMessage());
+    throw se;
+  } catch (Exception e) {
+    // Log general exceptions
+    logger.error(Logger.SECURITY_FAILURE, "Exception in saveSettings: {0}", e.getMessage());
+    throw new Exception("Error processing request");
   }
+}
+
+/**
+ * Interface for the Storage Service
+ * This would be implemented by a concrete class elsewhere
+ */
+public interface StorageService {
+  /**
+   * Saves a file securely in the designated location
+   * 
+   * @param directory The base directory for the file type
+   * @param filename The generated unique filename
+   * @param content The content to save
+   * @return true if save was successful, false otherwise
+   */
+  boolean saveFile(String directory, String filename, String content);
+}
 
   /**
    * Debug test for saving and reading a customer
