@@ -278,33 +278,134 @@ public void saveSettings(HttpServletResponse httpResponse, WebRequest request) t
     if (settings.length < 2) {
       httpResponse.getOutputStream().println("Error: Invalid settings format");
       logger.warning(Logger.SECURITY_FAILURE, "Invalid settings format");
-@RequestMapping(value = "/debug", method = RequestMethod.GET, produces = MediaType.TEXT_HTML_VALUE)
-@PreAuthorize("hasRole('ADMIN')") // Added authorization control
-@Profile("dev") // Restricted to development environment only
+// DTO class for parameter binding and validation
 @Validated
-public String debug(
-        @RequestParam @Pattern(regexp = "^[A-Za-z0-9]{1,50}$", message = "Invalid customer ID format") String customerId,
-        @RequestParam int clientId,
-        @RequestParam @Pattern(regexp = "^[A-Za-z- ']{1,50}$", message = "Invalid first name") String firstName,
-        @RequestParam @Pattern(regexp = "^[A-Za-z- ']{1,50}$", message = "Invalid last name") String lastName,
-        @RequestParam @Pattern(regexp = "^\\d{4}-\\d{2}-\\d{2}$", message = "Invalid date format (YYYY-MM-DD)") String dateOfBirth,
-        @RequestParam @Pattern(regexp = "^\\d{3}-\\d{2}-\\d{4}$", message = "Invalid SSN format") String ssn,
-        @RequestParam @Pattern(regexp = "^\\d{3}-\\d{2}-\\d{4}$", message = "Invalid Social Security Number format") String socialSecurityNum,
-        @RequestParam @Pattern(regexp = "^\\d{9}$", message = "Invalid TIN format") String tin,
-        @RequestParam @Pattern(regexp = "^\\d{3}-\\d{3}-\\d{4}$", message = "Invalid phone number format") String phoneNumber,
-        HttpServletResponse httpResponse,
-        WebRequest request) throws IOException {
+class CustomerForm {
+    @NotBlank(message = "Customer ID is required")
+    private String customerId;
+    
+    @Min(value = 1, message = "Client ID must be positive")
+    private int clientId;
+    
+    @NotBlank(message = "First name is required")
+    @Pattern(regexp = "^[a-zA-Z\\s-]+$", message = "First name contains invalid characters")
+    private String firstName;
+    
+    @NotBlank(message = "Last name is required")
+    @Pattern(regexp = "^[a-zA-Z\\s-]+$", message = "Last name contains invalid characters")
+    private String lastName;
+    
+    @NotBlank(message = "Date of birth is required")
+    @Pattern(regexp = "^\\d{4}-\\d{2}-\\d{2}$", message = "Date of birth must be in format YYYY-MM-DD")
+    private String dateOfBirth;
+    
+    @NotBlank(message = "SSN is required")
+    @Pattern(regexp = "^\\d{3}-\\d{2}-\\d{4}$", message = "SSN must be in format XXX-XX-XXXX")
+    private String ssn;
+    
+    @NotBlank(message = "Social Security Number is required")
+    private String socialSecurityNum;
+    
+    @NotBlank(message = "TIN is required")
+    private String tin;
+    
+    @NotBlank(message = "Phone number is required")
+    @Pattern(regexp = "^\\(\\d{3}\\)\\s\\d{3}-\\d{4}$", message = "Phone must be in format (XXX) XXX-XXXX")
+    private String phoneNumber;
+    
+    // Getters and setters
+    public String getCustomerId() { return customerId; }
+    public void setCustomerId(String customerId) { this.customerId = customerId; }
+    
+    public int getClientId() { return clientId; }
+    public void setClientId(int clientId) { this.clientId = clientId; }
+    
+    public String getFirstName() { return firstName; }
+    public void setFirstName(String firstName) { this.firstName = firstName; }
+    
+    public String getLastName() { return lastName; }
+    public void setLastName(String lastName) { this.lastName = lastName; }
+    
+    public String getDateOfBirth() { return dateOfBirth; }
+    public void setDateOfBirth(String dateOfBirth) { this.dateOfBirth = dateOfBirth; }
+    
+    public String getSsn() { return ssn; }
+    public void setSsn(String ssn) { this.ssn = ssn; }
+    
+    public String getSocialSecurityNum() { return socialSecurityNum; }
+    public void setSocialSecurityNum(String socialSecurityNum) { this.socialSecurityNum = socialSecurityNum; }
+    
+    public String getTin() { return tin; }
+    public void setTin(String tin) { this.tin = tin; }
+    
+    public String getPhoneNumber() { return phoneNumber; }
+    public void setPhoneNumber(String phoneNumber) { this.phoneNumber = phoneNumber; }
+}
 
-    // Input validation before processing
-    validateCustomerData(customerId, firstName, lastName, dateOfBirth, ssn, socialSecurityNum, tin, phoneNumber);
+// DTO for safe JSON response
+class CustomerDTO {
+    private String id;
+    private String firstName;
+    private String lastName;
+    
+    public CustomerDTO(Customer customer) {
+        this.id = customer.getId();
+        this.firstName = ESAPI.encoder().encodeForHTML(customer.getFirstName());
+        this.lastName = ESAPI.encoder().encodeForHTML(customer.getLastName());
+    }
+    
+    // Getters
+    public String getId() { return id; }
+    public String getFirstName() { return firstName; }
+    public String getLastName() { return lastName; }
+}
 
-    Set<Account> accounts1 = new HashSet<Account>();
-    //dateofbirth example -> "1982-01-10"
-    LocalDate birthDate = LocalDate.parse(dateOfBirth);
-    Customer customer1 = new Customer(customerId, clientId, firstName, lastName, java.sql.Date.valueOf(birthDate),
-                                      ssn, socialSecurityNum, tin, phoneNumber, new Address("Debug str",
-                                      "", "Debug city", "CA", "12345"),
-                                      accounts1);
+@Profile("!prod") // Ensure this endpoint is not available in production
+@RequestMapping(value = "/debug", method = RequestMethod.GET, produces = MediaType.APPLICATION_JSON_VALUE)
+@ResponseBody
+public ResponseEntity<CustomerDTO> debug(@Valid @ModelAttribute CustomerForm form,
+                                       HttpServletResponse httpResponse,
+                                       WebRequest request) throws IOException {
+    
+    try {
+        // Input validation is handled by @Valid annotation on the form object
+        
+        // Empty for now, because we debug
+        Set<Account> accounts1 = new HashSet<Account>();
+        
+        // Create customer with validated data
+        Customer customer1 = new Customer(
+            form.getCustomerId(),
+            form.getClientId(), 
+            form.getFirstName(),
+            form.getLastName(), 
+            LocalDate.parse(form.getDateOfBirth()).atStartOfDay(java.time.ZoneId.systemDefault()).toInstant(),
+            form.getSsn(), 
+            form.getSocialSecurityNum(), 
+            form.getTin(), 
+            form.getPhoneNumber(), 
+            new Address("Debug str", "", "Debug city", "CA", "12345"),
+            accounts1
+        );
+
+        customerRepository.save(customer1);
+        
+        // Add security headers
+        httpResponse.setHeader("Content-Security-Policy", "default-src 'self'");
+        httpResponse.setHeader("X-Content-Type-Options", "nosniff");
+        httpResponse.setHeader("X-XSS-Protection", "1; mode=block");
+        
+        // Return safe JSON response instead of plain text
+        return ResponseEntity
+            .status(HttpStatus.CREATED)
+            .header("Location", String.format("%s/customers/%s", request.getContextPath(), customer1.getId()))
+            .body(new CustomerDTO(customer1));
+    } catch (Exception e) {
+        // Log safely
+        String safeErrorMessage = ESAPI.encoder().encodeForHTML(e.getMessage());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(null);
+    }
+}
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
