@@ -656,21 +656,26 @@ public interface StorageService {
    * @return String
    * @throws IOException
    */
-  @RequestMapping(value = "/debug", method = RequestMethod.GET)
-  public String debug(@RequestParam String customerId,
-					  @RequestParam int clientId,
-					  @RequestParam String firstName,
+@RequestMapping(value = "/debug", method = RequestMethod.GET)
+  public ResponseEntity<CustomerResponseDTO> debug(
+                      @RequestParam String customerId,
+                      @RequestParam int clientId,
+                      @RequestParam String firstName,
                       @RequestParam String lastName,
                       @RequestParam String dateOfBirth,
                       @RequestParam String ssn,
-					  @RequestParam String socialSecurityNum,
+                      @RequestParam String socialSecurityNum,
                       @RequestParam String tin,
                       @RequestParam String phoneNumber,
                       HttpServletResponse httpResponse,
-                     WebRequest request) throws IOException{
+                      WebRequest request) throws IOException {
 
     // empty for now, because we debug
     Set<Account> accounts1 = new HashSet<Account>();
+    
+    // Validate all input parameters before processing using improved validation
+    validateInputParameters(firstName, lastName, dateOfBirth, ssn, socialSecurityNum, tin, phoneNumber);
+    
     //dateofbirth example -> "1982-01-10"
     Customer customer1 = new Customer(customerId, clientId, firstName, lastName, DateTime.parse(dateOfBirth).toDate(),
                                       ssn, socialSecurityNum, tin, phoneNumber, new Address("Debug str",
@@ -678,12 +683,116 @@ public interface StorageService {
                                       accounts1);
 
     customerRepository.save(customer1);
-    httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId()));
-
-    return customer1.toString().toLowerCase().replace("script","");
+    
+    // Add enhanced Content-Security-Policy header to restrict script execution
+    HttpHeaders headers = new HttpHeaders();
+    headers.set(HttpHeaders.CONTENT_SECURITY_POLICY, 
+                "default-src 'none'; script-src 'self'; connect-src 'self'; img-src 'self'; " +
+                "style-src 'self'; frame-ancestors 'none'; form-action 'self'; report-uri /csp-report");
+    headers.set(HttpHeaders.LOCATION, String.format("%s/customers/%s", request.getContextPath(), customer1.getId()));
+    
+    // Instead of returning toString(), create a dedicated response DTO
+    CustomerResponseDTO responseDTO = createSanitizedResponseDTO(customer1);
+    
+    // Return a properly structured response with appropriate headers
+    return ResponseEntity
+            .status(HttpStatus.CREATED)
+            .headers(headers)
+            .body(responseDTO);
   }
+  
+  /**
+   * Creates a sanitized DTO for customer responses
+   */
+  private CustomerResponseDTO createSanitizedResponseDTO(Customer customer) {
+    CustomerResponseDTO dto = new CustomerResponseDTO();
+    // Apply context-specific encoding for each field
+    dto.setId(Encode.forHtml(customer.getId()));
+    dto.setClientId(customer.getClientId());
+    dto.setFirstName(Encode.forHtml(customer.getFirstName()));
+    dto.setLastName(Encode.forHtml(customer.getLastName()));
+    dto.setDateOfBirth(Encode.forHtml(customer.getDateOfBirth().toString()));
+    // Mask sensitive data instead of sending it
+    dto.setSsnLast4(maskSsn(customer.getSsn()));
+    dto.setPhoneNumber(Encode.forHtml(customer.getPhoneNumber()));
+    // Add other necessary fields with appropriate encoding
+    return dto;
+  }
+  
+  /**
+   * Masks all but last 4 digits of SSN
+   */
+  private String maskSsn(String ssn) {
+    if (ssn == null || ssn.length() < 4) {
+      return "";
+    }
+    return "XXX-XX-" + ssn.substring(ssn.length() - 4);
+  }
+  
+  /**
+   * Validates input parameters using regex patterns to prevent malicious data
+   */
+  private void validateInputParameters(String firstName, String lastName, String dateOfBirth, 
+                                      String ssn, String socialSecurityNum, String tin, String phoneNumber) {
+    // Implement positive validation using regex patterns for each field
+    if (firstName == null || !Pattern.matches("[A-Za-z\\s\\-']{1,50}", firstName)) {
+      throw new IllegalArgumentException("Invalid firstName format");
+    }
+    if (lastName == null || !Pattern.matches("[A-Za-z\\s\\-']{1,50}", lastName)) {
+      throw new IllegalArgumentException("Invalid lastName format");
+    }
+    if (dateOfBirth == null || !Pattern.matches("\\d{4}-\\d{2}-\\d{2}", dateOfBirth)) {
+      throw new IllegalArgumentException("Invalid dateOfBirth format");
+    }
+    if (ssn != null && !Pattern.matches("\\d{3}-\\d{2}-\\d{4}|\\d{9}", ssn)) {
+      throw new IllegalArgumentException("Invalid SSN format");
+    }
+    if (socialSecurityNum != null && !Pattern.matches("\\d{3}-\\d{2}-\\d{4}|\\d{9}", socialSecurityNum)) {
+      throw new IllegalArgumentException("Invalid socialSecurityNum format");
+    }
+    if (tin != null && !Pattern.matches("\\d{2}-\\d{7}|\\d{9}", tin)) {
+      throw new IllegalArgumentException("Invalid TIN format");
+    }
+    if (phoneNumber != null && !Pattern.matches("\\d{3}-\\d{3}-\\d{4}|\\d{10}", phoneNumber)) {
+      throw new IllegalArgumentException("Invalid phoneNumber format");
+    }
+  }
+  
+  /**
+   * CustomerResponseDTO - A dedicated DTO class for customer responses
+   */
+  public static class CustomerResponseDTO {
+    private String id;
+    private int clientId;
+    private String firstName;
+    private String lastName;
+    private String dateOfBirth;
+    private String ssnLast4;
+    private String phoneNumber;
+    
+    // Getters and setters
+    public String getId() { return id; }
+    public void setId(String id) { this.id = id; }
+    
+    public int getClientId() { return clientId; }
+    public void setClientId(int clientId) { this.clientId = clientId; }
+    
+    public String getFirstName() { return firstName; }
+    public void setFirstName(String firstName) { this.firstName = firstName; }
+    
+    public String getLastName() { return lastName; }
+    public void setLastName(String lastName) { this.lastName = lastName; }
+    
+    public String getDateOfBirth() { return dateOfBirth; }
+    public void setDateOfBirth(String dateOfBirth) { this.dateOfBirth = dateOfBirth; }
+    
+    public String getSsnLast4() { return ssnLast4; }
+    public void setSsnLast4(String ssnLast4) { this.ssnLast4 = ssnLast4; }
+    
+    public String getPhoneNumber() { return phoneNumber; }
+    public void setPhoneNumber(String phoneNumber) { this.phoneNumber = phoneNumber; }
+  }
+
 
 	/**
 	 * Debug test for saving and reading a customer
