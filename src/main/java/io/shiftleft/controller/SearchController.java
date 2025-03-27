@@ -20,14 +20,47 @@ public class SearchController {
   @RequestMapping(value = "/search/user", method = RequestMethod.GET)
 @Controller
 public class SearchController {
-    private static final Logger logger = LoggerFactory.getLogger(SearchController.class);
+private static final Logger logger = LoggerFactory.getLogger(SearchController.class);
+
+@RequestMapping(value = "/search/user", method = RequestMethod.GET)
+public String doGetSearch(@RequestParam String foo, HttpServletResponse response, HttpServletRequest request) {
+    // Set proper Content-Type header for HTML content
+    response.setContentType("text/html; charset=UTF-8");
     
-    // Pre-defined whitelist of allowed operations
-    private static final Map<String, SearchOperation> ALLOWED_OPERATIONS = new HashMap<>();
+    // Implement Content-Security-Policy as a defense-in-depth measure
+    response.setHeader("Content-Security-Policy", "default-src 'self'");
     
-    @Autowired
-    private SearchService searchService;
+    // Removed dangerous SpEL parsing of user input
+    // Apply proper input validation and sanitization
+    String message = validateAndSanitizeInput(foo);
     
+    // HTML encode output before returning to prevent XSS
+    return StringEscapeUtils.escapeHtml4(message);
+}
+
+/**
+ * Validates and sanitizes user input to prevent injection attacks
+ * Allows more realistic search terms while maintaining security
+ */
+private String validateAndSanitizeInput(String input) {
+    // Implement improved validation logic with more realistic character set
+    if (!Pattern.matches("^[a-zA-Z0-9\\s\\-_,.;:'\"]{1,100}$", input)) {
+        // Log potential XSS attempts, with proper sanitization of log entries
+        logger.warn("Potential XSS attempt detected: " + input.replaceAll("[\r\n]", ""));
+        // HTML-escape error messages as well
+        return StringEscapeUtils.escapeHtml4("Invalid search input");
+    }
+    
+    // Context-specific encoding for different HTML contexts
+    String htmlContextValue = StringEscapeUtils.escapeHtml4(input);
+    String attributeContextValue = StringEscapeUtils.escapeHtml4(input);
+    String jsContextValue = StringEscapeUtils.escapeEcmaScript(input);
+    
+    // Return the appropriately escaped value depending on the context
+    // For this general case, we use the HTML context value
+    return htmlContextValue;
+}
+
     // Initialize the whitelist of operations
     static {
         ALLOWED_OPERATIONS.put("name", new NameSearchOperation());
