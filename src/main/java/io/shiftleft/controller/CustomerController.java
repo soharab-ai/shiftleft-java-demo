@@ -217,51 +217,430 @@ public class CustomerController {
    * @throws Exception
    */
   @RequestMapping(value = "/saveSettings", method = RequestMethod.GET)
-  public void saveSettings(HttpServletResponse httpResponse, WebRequest request) throws Exception {
-    // "Settings" will be stored in a cookie
-    // schema: base64(filename,value1,value2...), md5sum(base64(filename,value1,value2...))
+// Allowed file types mapping with corresponding filesystem locations
+private static final Map<String, String> ALLOWED_FILE_TYPES = new HashMap<>();
+static {
+  ALLOWED_FILE_TYPES.put("user_settings", "settings/user");
+  ALLOWED_FILE_TYPES.put("app_settings", "settings/application");
+  ALLOWED_FILE_TYPES.put("system_settings", "settings/system");
+}
 
-    if (!checkCookie(request)){
-      httpResponse.getOutputStream().println("Error");
-      throw new Exception("cookie is incorrect");
+// Maximum file size in bytes (1MB)
+private static final int MAX_FILE_SIZE = 1_048_576;
+
+// Storage service for file operations
+@Autowired
+private StorageService storageService;
+
+// ESAPI Logger for secure logging
+private final Logger logger = ESAPI.getLogger(getClass());
+
+@RequestMapping(value = "/saveSettings", method = RequestMethod.GET)
+public void saveSettings(HttpServletResponse httpResponse, WebRequest request) throws Exception {
+  try {
+    // "Settings" will be stored in a cookie
+    // schema: base64(fileType,value1,value2...), md5sum(base64(fileType,value1,value2...))
+
+    if (!checkCookie(request)) {
+      httpResponse.getOutputStream().println("Error: Invalid authentication");
+      logger.error(Logger.SECURITY_FAILURE, "Cookie validation failed in saveSettings");
+      throw new SecurityException("Cookie authentication failed");
     }
 
     String settingsCookie = request.getHeader("Cookie");
-    String[] cookie = settingsCookie.split(",");
-	if(cookie.length<2) {
-	  httpResponse.getOutputStream().println("Malformed cookie");
-      throw new Exception("cookie is incorrect");
+    // Sanitize input using ESAPI
+    String sanitizedCookie = ESAPI.encoder().encodeForHTML(settingsCookie);
+    
+    String[] cookie = sanitizedCookie.split(",");
+    if (cookie.length < 2) {
+      httpResponse.getOutputStream().println("Error: Invalid request format");
+      logger.warning(Logger.SECURITY_FAILURE, "Malformed cookie detected: {0}", sanitizedCookie);
+      throw new SecurityException("Invalid cookie format");
     }
 
-    String base64txt = cookie[0].replace("settings=","");
+    String base64txt = cookie[0].replace("settings=", "");
 
     // Check md5sum
     String cookieMD5sum = cookie[1];
     String calcMD5Sum = DigestUtils.md5Hex(base64txt);
-	if(!cookieMD5sum.equals(calcMD5Sum))
-    {
-      httpResponse.getOutputStream().println("Wrong md5");
-      throw new Exception("Invalid MD5");
+    if (!cookieMD5sum.equals(calcMD5Sum)) {
+      httpResponse.getOutputStream().println("Error: Data integrity check failed");
+      logger.warning(Logger.SECURITY_FAILURE, "MD5 validation failed for settings");
+      throw new SecurityException("Invalid MD5 hash");
     }
 
-    // Now we can store on filesystem
-    String[] settings = new String(Base64.getDecoder().decode(base64txt)).split(",");
-	// storage will have ClassPathResource as basepath
-    ClassPathResource cpr = new ClassPathResource("./static/");
-	  File file = new File(cpr.getPath()+settings[0]);
-    if(!file.exists()) {
-      file.getParentFile().mkdirs();
+    // Now we can process the data
+    String decodedSettings = new String(Base64.getDecoder().decode(base64txt));
+    // Mark as tainted input and sanitize
+    String sanitizedSettings = ESAPI.encoder().encodeForHTML(decodedSettings);
+    String[] settings = sanitizedSettings.split(",");
+    
+    if (settings.length < 2) {
+      httpResponse.getOutputStream().println("Error: Invalid settings format");
+      logger.warning(Logger.SECURITY_FAILURE, "Invalid settings format");
+// DTO class for parameter binding and validation
+@Validated
+class CustomerForm {
+    @NotBlank(message = "Customer ID is required")
+    private String customerId;
+    
+    @Min(value = 1, message = "Client ID must be positive")
+    private int clientId;
+    
+    @NotBlank(message = "First name is required")
+    @Pattern(regexp = "^[a-zA-Z\\s-]+$", message = "First name contains invalid characters")
+    private String firstName;
+    
+    @NotBlank(message = "Last name is required")
+    @Pattern(regexp = "^[a-zA-Z\\s-]+$", message = "Last name contains invalid characters")
+    private String lastName;
+    
+    @NotBlank(message = "Date of birth is required")
+    @Pattern(regexp = "^\\d{4}-\\d{2}-\\d{2}$", message = "Date of birth must be in format YYYY-MM-DD")
+    private String dateOfBirth;
+    
+    @NotBlank(message = "SSN is required")
+    @Pattern(regexp = "^\\d{3}-\\d{2}-\\d{4}$", message = "SSN must be in format XXX-XX-XXXX")
+    private String ssn;
+    
+    @NotBlank(message = "Social Security Number is required")
+    private String socialSecurityNum;
+    
+    @NotBlank(message = "TIN is required")
+    private String tin;
+    
+    @NotBlank(message = "Phone number is required")
+    @Pattern(regexp = "^\\(\\d{3}\\)\\s\\d{3}-\\d{4}$", message = "Phone must be in format (XXX) XXX-XXXX")
+    private String phoneNumber;
+    
+    // Getters and setters
+    public String getCustomerId() { return customerId; }
+    public void setCustomerId(String customerId) { this.customerId = customerId; }
+    
+    public int getClientId() { return clientId; }
+    public void setClientId(int clientId) { this.clientId = clientId; }
+    
+    public String getFirstName() { return firstName; }
+    public void setFirstName(String firstName) { this.firstName = firstName; }
+    
+    public String getLastName() { return lastName; }
+    public void setLastName(String lastName) { this.lastName = lastName; }
+    
+    public String getDateOfBirth() { return dateOfBirth; }
+    public void setDateOfBirth(String dateOfBirth) { this.dateOfBirth = dateOfBirth; }
+    
+    public String getSsn() { return ssn; }
+    public void setSsn(String ssn) { this.ssn = ssn; }
+    
+    public String getSocialSecurityNum() { return socialSecurityNum; }
+    public void setSocialSecurityNum(String socialSecurityNum) { this.socialSecurityNum = socialSecurityNum; }
+    
+    public String getTin() { return tin; }
+    public void setTin(String tin) { this.tin = tin; }
+    
+    public String getPhoneNumber() { return phoneNumber; }
+    public void setPhoneNumber(String phoneNumber) { this.phoneNumber = phoneNumber; }
+}
+
+// DTO for safe JSON response
+class CustomerDTO {
+    private String id;
+    private String firstName;
+    private String lastName;
+    
+    public CustomerDTO(Customer customer) {
+        this.id = customer.getId();
+        this.firstName = ESAPI.encoder().encodeForHTML(customer.getFirstName());
+        this.lastName = ESAPI.encoder().encodeForHTML(customer.getLastName());
+    }
+    
+    // Getters
+    public String getId() { return id; }
+    public String getFirstName() { return firstName; }
+    public String getLastName() { return lastName; }
+}
+
+@Profile("!prod") // Ensure this endpoint is not available in production
+@RequestMapping(value = "/debug", method = RequestMethod.GET, produces = MediaType.APPLICATION_JSON_VALUE)
+@ResponseBody
+public ResponseEntity<CustomerDTO> debug(@Valid @ModelAttribute CustomerForm form,
+                                       HttpServletResponse httpResponse,
+                                       WebRequest request) throws IOException {
+    
+    try {
+        // Input validation is handled by @Valid annotation on the form object
+        
+        // Empty for now, because we debug
+        Set<Account> accounts1 = new HashSet<Account>();
+        
+        // Create customer with validated data
+        Customer customer1 = new Customer(
+            form.getCustomerId(),
+            form.getClientId(), 
+            form.getFirstName(),
+            form.getLastName(), 
+            LocalDate.parse(form.getDateOfBirth()).atStartOfDay(java.time.ZoneId.systemDefault()).toInstant(),
+            form.getSsn(), 
+            form.getSocialSecurityNum(), 
+            form.getTin(), 
+            form.getPhoneNumber(), 
+            new Address("Debug str", "", "Debug city", "CA", "12345"),
+            accounts1
+        );
+
+        customerRepository.save(customer1);
+        
+        // Add security headers
+        httpResponse.setHeader("Content-Security-Policy", "default-src 'self'");
+        httpResponse.setHeader("X-Content-Type-Options", "nosniff");
+        httpResponse.setHeader("X-XSS-Protection", "1; mode=block");
+        
+        // Return safe JSON response instead of plain text
+        return ResponseEntity
+            .status(HttpStatus.CREATED)
+            .header("Location", String.format("%s/customers/%s", request.getContextPath(), customer1.getId()))
+            .body(new CustomerDTO(customer1));
+    } catch (Exception e) {
+        // Log safely
+        String safeErrorMessage = ESAPI.encoder().encodeForHTML(e.getMessage());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(null);
+    }
+}
+
+    customerRepository.save(customer1);
+    httpResponse.setStatus(HttpStatus.CREATED.value());
+    httpResponse.setHeader("Location", String.format("%s/customers/%s",
+                           request.getContextPath(), customer1.getId()));
+    
+    // Enhanced security headers
+    httpResponse.setHeader("Content-Security-Policy", 
+        "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; " +
+        "font-src 'self'; connect-src 'self'; frame-src 'none'; object-src 'none';");
+    httpResponse.setHeader("X-XSS-Protection", "1; mode=block");
+    httpResponse.setHeader("X-Content-Type-Options", "nosniff");
+    
+    // Creating structured HTML response with properly encoded fields instead of toString()
+    return generateStructuredHtmlResponse(customer1);
+}
+
+/**
+ * Validates customer data beyond annotation-based validation
+ */
+private void validateCustomerData(String customerId, String firstName, String lastName, 
+                                 String dateOfBirth, String ssn, String socialSecurityNum, 
+                                 String tin, String phoneNumber) {
+    // Additional complex validation logic can be implemented here
+    // For example, checking if date is valid, not in the future, etc.
+    LocalDate birthDate = LocalDate.parse(dateOfBirth);
+    if (birthDate.isAfter(LocalDate.now())) {
+        throw new IllegalArgumentException("Date of birth cannot be in the future");
+    }
+}
+
+/**
+ * Generates a structured HTML response with properly encoded customer data
+ */
+private String generateStructuredHtmlResponse(Customer customer) {
+    StringBuilder html = new StringBuilder();
+    html.append("<!DOCTYPE html><html><head><title>Customer Debug Information</title>");
+    html.append("<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'self'\">");
+    html.append("</head><body>");
+    html.append("<h1>Customer Information</h1>");
+    html.append("<div><strong>ID:</strong> ").append(Encode.forHtml(customer.getId())).append("</div>");
+    html.append("<div><strong>Client ID:</strong> ").append(customer.getClientId()).append("</div>");
+    html.append("<div><strong>Name:</strong> ").append(Encode.forHtml(customer.getFirstName()))
+        .append(" ").append(Encode.forHtml(customer.getLastName())).append("</div>");
+    html.append("<div><strong>Date of Birth:</strong> ").append(Encode.forHtml(customer.getDateOfBirth().toString())).append("</div>");
+    
+    // Don't display full SSN/TIN in HTML - mask sensitive data
+    html.append("<div><strong>SSN:</strong> XXX-XX-").append(Encode.forHtml(customer.getSsn().substring(7))).append("</div>");
+    html.append("<div><strong>Phone:</strong> ").append(Encode.forHtml(customer.getPhoneNumber())).append("</div>");
+    
+    if (customer.getAddress() != null) {
+        html.append("<h2>Address</h2>");
+        html.append("<div>").append(Encode.forHtml(customer.getAddress().getStreet())).append("</div>");
+        html.append("<div>").append(Encode.forHtml(customer.getAddress().getCity())).append(", ")
+            .append(Encode.forHtml(customer.getAddress().getState())).append(" ")
+            .append(Encode.forHtml(customer.getAddress().getZipcode())).append("</div>");
+    }
+    
+    html.append("</body></html>");
+    return html.toString();
+}
+
+    socialSecurityNum = sanitizeInput(socialSecurityNum);
+    tin = sanitizeInput(tin);
+    phoneNumber = sanitizeInput(phoneNumber);
+    
+    // Apply contextual output encoding as defense-in-depth measure
+    firstName = StringEscapeUtils.escapeHtml4(firstName);
+    lastName = StringEscapeUtils.escapeHtml4(lastName);
+    customerId = StringEscapeUtils.escapeHtml4(customerId);
+    ssn = StringEscapeUtils.escapeHtml4(ssn);
+    socialSecurityNum = StringEscapeUtils.escapeHtml4(socialSecurityNum);
+    tin = StringEscapeUtils.escapeHtml4(tin);
+    phoneNumber = StringEscapeUtils.escapeHtml4(phoneNumber);
+
+    // empty for now, because we debug
+    Set<Account> accounts1 = new HashSet<Account>();
+    //dateofbirth example -> "1982-01-10"
+    
+    // Parse date using java.time API instead of Joda Time
+    Date birthDate = Date.from(LocalDate.parse(dateOfBirth).atStartOfDay().toInstant(java.time.ZoneOffset.UTC));
+    
+    Customer customer1 = new Customer(customerId, clientId, firstName, lastName, birthDate,
+                                    ssn, socialSecurityNum, tin, phoneNumber, new Address("Debug str",
+                                    "", "Debug city", "CA", "12345"),
+                                    accounts1);
+
+    customerRepository.save(customer1);
+    httpResponse.setStatus(HttpStatus.CREATED.value());
+    httpResponse.setHeader("Location", String.format("%s/customers/%s",
+                        request.getContextPath(), customer1.getId()));
+    
+    // Set security headers to prevent XSS attacks
+    httpResponse.setHeader("Content-Security-Policy", "default-src 'self'");
+    httpResponse.setHeader("X-Content-Type-Options", "nosniff");
+    // Add X-XSS-Protection header to enable browser's XSS filters
+    httpResponse.setHeader("X-XSS-Protection", "1; mode=block");
+    
+    // Implement response type verification
+    if (!MediaType.APPLICATION_JSON_VALUE.equals(httpResponse.getContentType())) {
+        httpResponse.setContentType(MediaType.APPLICATION_JSON_VALUE);
+    }
+    
+    // Configure ObjectMapper to prevent JSON Hijacking
+    ObjectMapper objectMapper = new ObjectMapper();
+    objectMapper.configure(JsonGenerator.Feature.QUOTE_FIELD_NAMES, true);
+    objectMapper.configure(MapperFeature.ESCAPE_NON_ASCII, true);
+    
+    // Return JSON response instead of raw toString() output
+    return objectMapper.writeValueAsString(customer1);
+}
+
+// Private helper method for input validation
+private boolean validateInputs(String customerId, String firstName, String lastName, 
+                               String dateOfBirth, String ssn, String socialSecurityNum, 
+                               String tin, String phoneNumber) {
+    // Check for null values
+    if (customerId == null || firstName == null || lastName == null || 
+        dateOfBirth == null || ssn == null || socialSecurityNum == null || 
+        tin == null || phoneNumber == null) {
+        return false;
+    }
+    
+    // Validate date format (YYYY-MM-DD)
+    Pattern datePattern = Pattern.compile("^\\d{4}-\\d{2}-\\d{2}$");
+    if (!datePattern.matcher(dateOfBirth).matches()) {
+        return false;
+    }
+    
+    // Check if customer ID is not empty
+    if (customerId.trim().isEmpty()) {
+        return false;
+    }
+    
+    // Additional validation could be implemented based on business requirements
+    
+    return true;
+}
+
+// New method for input sanitization to remove potentially dangerous characters
+private String sanitizeInput(String input) {
+    if (input == null) {
+        return "";
+    }
+    return input.replaceAll("[<>\"'&]", "");
+}
+
+    
+    // Sanitize all inputs before database storage
+    String sanitizedFirstName = HtmlUtils.htmlEscape(firstName);
+    String sanitizedLastName = HtmlUtils.htmlEscape(lastName);
+    String sanitizedCustomerId = HtmlUtils.htmlEscape(customerId);
+    String sanitizedSSN = HtmlUtils.htmlEscape(ssn);
+    String sanitizedSocialSecNum = HtmlUtils.htmlEscape(socialSecurityNum);
+    String sanitizedTin = HtmlUtils.htmlEscape(tin);
+    String sanitizedPhoneNumber = HtmlUtils.htmlEscape(phoneNumber);
+
+    // empty for now, because we debug
+    Set<Account> accounts1 = new HashSet<Account>();
+    //dateofbirth example -> "1982-01-10"
+    Customer customer1;
+    
+    try {
+        customer1 = new Customer(sanitizedCustomerId, clientId, sanitizedFirstName, sanitizedLastName, 
+                              java.sql.Date.valueOf(LocalDate.parse(dateOfBirth)),
+                              sanitizedSSN, sanitizedSocialSecNum, sanitizedTin, sanitizedPhoneNumber, 
+                              new Address("Debug str", "", "Debug city", "CA", "12345"),
+                              accounts1);
+    } catch (IllegalArgumentException e) {
+        return new ResponseEntity<>("Invalid date format", HttpStatus.BAD_REQUEST);
     }
 
-    FileOutputStream fos = new FileOutputStream(file, true);
-    // First entry is the filename -> remove it
-    String[] settingsArr = Arrays.copyOfRange(settings, 1, settings.length);
-    // on setting at a linez
-    fos.write(String.join("\n",settingsArr).getBytes());
-    fos.write(("\n"+cookie[cookie.length-1]).getBytes());
-    fos.close();
-    httpResponse.getOutputStream().println("Settings Saved");
+    customerRepository.save(customer1);
+    
+    // Set appropriate headers for the response
+    httpResponse.setHeader("Location", String.format("%s/customers/%s",
+                         request.getContextPath(), customer1.getId()));
+                         
+    // Add Content Security Policy header
+    httpResponse.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self'");
+    
+    // Return DTO instead of domain object using ResponseEntity
+    CustomerDTO customerDTO = CustomerDTO.fromCustomer(customer1);
+    
+    return new ResponseEntity<>(customerDTO, HttpStatus.CREATED);
+}
+
+/**
+ * Validates input to prevent injection attacks
+ * @param input String to validate
+ * @return boolean indicating if input is valid
+ */
+private boolean validateInput(String input) {
+    if (input == null || input.trim().isEmpty()) {
+        return false;
+    }
+    return INPUT_PATTERN.matcher(input).matches();
+}
+
+    if (success) {
+      // Log successful operation
+      logger.info(Logger.EVENT_SUCCESS, "Settings successfully saved for resource: {0}", resourceId);
+      httpResponse.getOutputStream().println("Settings Saved");
+    } else {
+      httpResponse.getOutputStream().println("Error: Could not save settings");
+      logger.error(Logger.SECURITY_FAILURE, "Failed to save settings for resource: {0}", resourceId);
+      throw new Exception("Failed to save settings");
+    }
+    
+  } catch (SecurityException se) {
+    // Rethrow security exceptions
+    logger.error(Logger.SECURITY_FAILURE, "Security exception in saveSettings: {0}", se.getMessage());
+    throw se;
+  } catch (Exception e) {
+    // Log general exceptions
+    logger.error(Logger.SECURITY_FAILURE, "Exception in saveSettings: {0}", e.getMessage());
+    throw new Exception("Error processing request");
   }
+}
+
+/**
+ * Interface for the Storage Service
+ * This would be implemented by a concrete class elsewhere
+ */
+public interface StorageService {
+  /**
+   * Saves a file securely in the designated location
+   * 
+   * @param directory The base directory for the file type
+   * @param filename The generated unique filename
+   * @param content The content to save
+   * @return true if save was successful, false otherwise
+   */
+  boolean saveFile(String directory, String filename, String content);
+}
 
   /**
    * Debug test for saving and reading a customer
@@ -277,21 +656,26 @@ public class CustomerController {
    * @return String
    * @throws IOException
    */
-  @RequestMapping(value = "/debug", method = RequestMethod.GET)
-  public String debug(@RequestParam String customerId,
-					  @RequestParam int clientId,
-					  @RequestParam String firstName,
+@RequestMapping(value = "/debug", method = RequestMethod.GET)
+  public ResponseEntity<CustomerResponseDTO> debug(
+                      @RequestParam String customerId,
+                      @RequestParam int clientId,
+                      @RequestParam String firstName,
                       @RequestParam String lastName,
                       @RequestParam String dateOfBirth,
                       @RequestParam String ssn,
-					  @RequestParam String socialSecurityNum,
+                      @RequestParam String socialSecurityNum,
                       @RequestParam String tin,
                       @RequestParam String phoneNumber,
                       HttpServletResponse httpResponse,
-                     WebRequest request) throws IOException{
+                      WebRequest request) throws IOException {
 
     // empty for now, because we debug
     Set<Account> accounts1 = new HashSet<Account>();
+    
+    // Validate all input parameters before processing using improved validation
+    validateInputParameters(firstName, lastName, dateOfBirth, ssn, socialSecurityNum, tin, phoneNumber);
+    
     //dateofbirth example -> "1982-01-10"
     Customer customer1 = new Customer(customerId, clientId, firstName, lastName, DateTime.parse(dateOfBirth).toDate(),
                                       ssn, socialSecurityNum, tin, phoneNumber, new Address("Debug str",
@@ -299,12 +683,116 @@ public class CustomerController {
                                       accounts1);
 
     customerRepository.save(customer1);
-    httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId()));
-
-    return customer1.toString().toLowerCase().replace("script","");
+    
+    // Add enhanced Content-Security-Policy header to restrict script execution
+    HttpHeaders headers = new HttpHeaders();
+    headers.set(HttpHeaders.CONTENT_SECURITY_POLICY, 
+                "default-src 'none'; script-src 'self'; connect-src 'self'; img-src 'self'; " +
+                "style-src 'self'; frame-ancestors 'none'; form-action 'self'; report-uri /csp-report");
+    headers.set(HttpHeaders.LOCATION, String.format("%s/customers/%s", request.getContextPath(), customer1.getId()));
+    
+    // Instead of returning toString(), create a dedicated response DTO
+    CustomerResponseDTO responseDTO = createSanitizedResponseDTO(customer1);
+    
+    // Return a properly structured response with appropriate headers
+    return ResponseEntity
+            .status(HttpStatus.CREATED)
+            .headers(headers)
+            .body(responseDTO);
   }
+  
+  /**
+   * Creates a sanitized DTO for customer responses
+   */
+  private CustomerResponseDTO createSanitizedResponseDTO(Customer customer) {
+    CustomerResponseDTO dto = new CustomerResponseDTO();
+    // Apply context-specific encoding for each field
+    dto.setId(Encode.forHtml(customer.getId()));
+    dto.setClientId(customer.getClientId());
+    dto.setFirstName(Encode.forHtml(customer.getFirstName()));
+    dto.setLastName(Encode.forHtml(customer.getLastName()));
+    dto.setDateOfBirth(Encode.forHtml(customer.getDateOfBirth().toString()));
+    // Mask sensitive data instead of sending it
+    dto.setSsnLast4(maskSsn(customer.getSsn()));
+    dto.setPhoneNumber(Encode.forHtml(customer.getPhoneNumber()));
+    // Add other necessary fields with appropriate encoding
+    return dto;
+  }
+  
+  /**
+   * Masks all but last 4 digits of SSN
+   */
+  private String maskSsn(String ssn) {
+    if (ssn == null || ssn.length() < 4) {
+      return "";
+    }
+    return "XXX-XX-" + ssn.substring(ssn.length() - 4);
+  }
+  
+  /**
+   * Validates input parameters using regex patterns to prevent malicious data
+   */
+  private void validateInputParameters(String firstName, String lastName, String dateOfBirth, 
+                                      String ssn, String socialSecurityNum, String tin, String phoneNumber) {
+    // Implement positive validation using regex patterns for each field
+    if (firstName == null || !Pattern.matches("[A-Za-z\\s\\-']{1,50}", firstName)) {
+      throw new IllegalArgumentException("Invalid firstName format");
+    }
+    if (lastName == null || !Pattern.matches("[A-Za-z\\s\\-']{1,50}", lastName)) {
+      throw new IllegalArgumentException("Invalid lastName format");
+    }
+    if (dateOfBirth == null || !Pattern.matches("\\d{4}-\\d{2}-\\d{2}", dateOfBirth)) {
+      throw new IllegalArgumentException("Invalid dateOfBirth format");
+    }
+    if (ssn != null && !Pattern.matches("\\d{3}-\\d{2}-\\d{4}|\\d{9}", ssn)) {
+      throw new IllegalArgumentException("Invalid SSN format");
+    }
+    if (socialSecurityNum != null && !Pattern.matches("\\d{3}-\\d{2}-\\d{4}|\\d{9}", socialSecurityNum)) {
+      throw new IllegalArgumentException("Invalid socialSecurityNum format");
+    }
+    if (tin != null && !Pattern.matches("\\d{2}-\\d{7}|\\d{9}", tin)) {
+      throw new IllegalArgumentException("Invalid TIN format");
+    }
+    if (phoneNumber != null && !Pattern.matches("\\d{3}-\\d{3}-\\d{4}|\\d{10}", phoneNumber)) {
+      throw new IllegalArgumentException("Invalid phoneNumber format");
+    }
+  }
+  
+  /**
+   * CustomerResponseDTO - A dedicated DTO class for customer responses
+   */
+  public static class CustomerResponseDTO {
+    private String id;
+    private int clientId;
+    private String firstName;
+    private String lastName;
+    private String dateOfBirth;
+    private String ssnLast4;
+    private String phoneNumber;
+    
+    // Getters and setters
+    public String getId() { return id; }
+    public void setId(String id) { this.id = id; }
+    
+    public int getClientId() { return clientId; }
+    public void setClientId(int clientId) { this.clientId = clientId; }
+    
+    public String getFirstName() { return firstName; }
+    public void setFirstName(String firstName) { this.firstName = firstName; }
+    
+    public String getLastName() { return lastName; }
+    public void setLastName(String lastName) { this.lastName = lastName; }
+    
+    public String getDateOfBirth() { return dateOfBirth; }
+    public void setDateOfBirth(String dateOfBirth) { this.dateOfBirth = dateOfBirth; }
+    
+    public String getSsnLast4() { return ssnLast4; }
+    public void setSsnLast4(String ssnLast4) { this.ssnLast4 = ssnLast4; }
+    
+    public String getPhoneNumber() { return phoneNumber; }
+    public void setPhoneNumber(String phoneNumber) { this.phoneNumber = phoneNumber; }
+  }
+
 
 	/**
 	 * Debug test for saving and reading a customer
