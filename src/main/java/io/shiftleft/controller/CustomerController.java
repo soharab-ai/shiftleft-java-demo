@@ -277,7 +277,7 @@ public class CustomerController {
    * @return String
    * @throws IOException
    */
-  @RequestMapping(value = "/debug", method = RequestMethod.GET)
+@RequestMapping(value = "/debug", method = RequestMethod.GET)
   public String debug(@RequestParam String customerId,
 					  @RequestParam int clientId,
 					  @RequestParam String firstName,
@@ -293,7 +293,11 @@ public class CustomerController {
     // empty for now, because we debug
     Set<Account> accounts1 = new HashSet<Account>();
     //dateofbirth example -> "1982-01-10"
-    Customer customer1 = new Customer(customerId, clientId, firstName, lastName, DateTime.parse(dateOfBirth).toDate(),
+    
+    // Replaced Joda DateTime with Java 8 time API
+    Date birthDate = Date.from(LocalDate.parse(dateOfBirth).atStartOfDay(ZoneId.systemDefault()).toInstant());
+    
+    Customer customer1 = new Customer(customerId, clientId, firstName, lastName, birthDate,
                                       ssn, socialSecurityNum, tin, phoneNumber, new Address("Debug str",
                                       "", "Debug city", "CA", "12345"),
                                       accounts1);
@@ -302,9 +306,14 @@ public class CustomerController {
     httpResponse.setStatus(HttpStatus.CREATED.value());
     httpResponse.setHeader("Location", String.format("%s/customers/%s",
                            request.getContextPath(), customer1.getId()));
-
-    return customer1.toString().toLowerCase().replace("script","");
+    
+    // Added Content-Security-Policy header to restrict script execution
+    httpResponse.setHeader("Content-Security-Policy", "default-src 'self'");
+    
+    // Fixed XSS vulnerability by properly encoding the HTML output
+    return HtmlUtils.htmlEscape(customer1.toString());
   }
+
 
 	/**
 	 * Debug test for saving and reading a customer
