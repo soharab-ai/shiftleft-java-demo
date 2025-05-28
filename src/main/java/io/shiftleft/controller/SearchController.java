@@ -17,16 +17,44 @@ import org.springframework.web.bind.annotation.RequestParam;
 @Controller
 public class SearchController {
 
-  @RequestMapping(value = "/search/user", method = RequestMethod.GET)
-  public String doGetSearch(@RequestParam String foo, HttpServletResponse response, HttpServletRequest request) {
-    java.lang.Object message = new Object();
-    try {
-      ExpressionParser parser = new SpelExpressionParser();
-      Expression exp = parser.parseExpression(foo);
-      message = (Object) exp.getValue();
-    } catch (Exception ex) {
-      System.out.println(ex.getMessage());
-    }
+@RequestMapping(value = "/search/user", method = RequestMethod.GET)
+@Validated
+public String doGetSearch(
+    @RequestParam @Pattern(regexp="^[a-zA-Z0-9]+$") String foo, 
+    @RequestParam(defaultValue = "DEFAULT") String operation,
+    HttpServletResponse response, 
+    HttpServletRequest request) {
+
+  // Completely eliminated SpEL in favor of direct function mapping
+  Map<String, Function<String, String>> safeOperations = new HashMap<>();
+  
+  // Define allowed operations with corresponding safe implementations
+  safeOperations.put("DEFAULT", input -> input);
+  safeOperations.put("UPPERCASE", String::toUpperCase);
+  safeOperations.put("LOWERCASE", String::toLowerCase);
+  safeOperations.put("LENGTH", input -> String.valueOf(input.length()));
+  safeOperations.put("TRIM", String::trim);
+  
+  // Attempt to find the requested operation in our safe operations map
+  Function<String, String> selectedOperation = safeOperations.get(operation.toUpperCase());
+  
+  // If operation isn't in our whitelist, return an error message
+  if (selectedOperation == null) {
+    return "Unsupported operation. Available operations: " + 
+           String.join(", ", safeOperations.keySet());
+  }
+  
+  try {
+    // Apply the selected operation to the input
+    String result = selectedOperation.apply(foo);
+    return result != null ? result : "";
+  } catch (Exception ex) {
+    // Log exception safely (without exposing details to the user)
+    System.out.println("Error processing operation: " + operation);
+    return "Error processing your request";
+  }
+}
+
     return message.toString();
   }
 }
