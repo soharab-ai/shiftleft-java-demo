@@ -217,20 +217,81 @@ public class CustomerController {
    * @throws Exception
    */
   @RequestMapping(value = "/saveSettings", method = RequestMethod.GET)
-  public void saveSettings(HttpServletResponse httpResponse, WebRequest request) throws Exception {
+// Secure file storage service for resource isolation
+@Service
+class SecureFileStorageService {
+    private static final Set<String> ALLOWED_DIRECTORIES = Set.of("profiles", "settings", "public");
+    private final Path baseStoragePath;
+    
+    public SecureFileStorageService() throws IOException {
+        ClassPathResource cpr = new ClassPathResource("./static/");
+        this.baseStoragePath = Paths.get(cpr.getPath()).toAbsolutePath().normalize();
+        Files.createDirectories(baseStoragePath);
+    }
+    
+    public Path storeFile(String fileName, byte[] content) throws IOException, SecurityException {
+        // Extract directory from fileName (if any)
+        Path requestedPath = baseStoragePath.resolve(fileName).normalize();
+        
+        // Validate the path is within the base storage path
+        if (!requestedPath.startsWith(baseStoragePath)) {
+            throw new SecurityException("Directory traversal attempt detected");
+        }
+        
+        // Check if file is in allowed directory
+        String relativePath = baseStoragePath.relativize(requestedPath).toString();
+        String[] pathParts = relativePath.split(File.separator);
+        if (pathParts.length > 1 && !ALLOWED_DIRECTORIES.contains(pathParts[0])) {
+            throw new SecurityException("Writing to unauthorized directory");
+        }
+        
+        // Write to temporary file first, then move
+        Path tempFile = Files.createTempFile("settings", ".tmp");
+        Files.write(tempFile, content);
+        
+        // Create parent directories if needed
+        Files.createDirectories(requestedPath.getParent());
+        
+        // Move the temp file to the target location
+        return Files.move(tempFile, requestedPath, StandardCopyOption.REPLACE_EXISTING);
+    }
+    
+    public boolean isValidContent(String[] content) {
+        // Implement content validation logic
+        if (content == null || content.length == 0) {
+            return false;
+        }
+        
+        // Check for potentially malicious content
+        for (String line : content) {
+            // Example validation - adjust based on expected content
+            if (line.contains("<script") || line.contains("javascript:") || 
+                line.contains("eval(") || line.contains("document.cookie")) {
+                return false;
+            }
+        }
+        return true;
+    }
+}
+
+@Autowired
+private SecureFileStorageService fileStorage;
+
+@RequestMapping(value = "/saveSettings", method = RequestMethod.GET)
+public void saveSettings(HttpServletResponse httpResponse, WebRequest request) throws Exception {
     // "Settings" will be stored in a cookie
     // schema: base64(filename,value1,value2...), md5sum(base64(filename,value1,value2...))
 
     if (!checkCookie(request)){
-      httpResponse.getOutputStream().println("Error");
-      throw new Exception("cookie is incorrect");
+        httpResponse.getOutputStream().println("Error");
+        throw new Exception("cookie is incorrect");
     }
 
     String settingsCookie = request.getHeader("Cookie");
     String[] cookie = settingsCookie.split(",");
-	if(cookie.length<2) {
-	  httpResponse.getOutputStream().println("Malformed cookie");
-      throw new Exception("cookie is incorrect");
+    if(cookie.length<2) {
+        httpResponse.getOutputStream().println("Malformed cookie");
+        throw new Exception("cookie is incorrect");
     }
 
     String base64txt = cookie[0].replace("settings=","");
@@ -238,30 +299,41 @@ public class CustomerController {
     // Check md5sum
     String cookieMD5sum = cookie[1];
     String calcMD5Sum = DigestUtils.md5Hex(base64txt);
-	if(!cookieMD5sum.equals(calcMD5Sum))
+    if(!cookieMD5sum.equals(calcMD5Sum))
     {
-      httpResponse.getOutputStream().println("Wrong md5");
-      throw new Exception("Invalid MD5");
+        httpResponse.getOutputStream().println("Wrong md5");
+        throw new Exception("Invalid MD5");
     }
 
     // Now we can store on filesystem
     String[] settings = new String(Base64.getDecoder().decode(base64txt)).split(",");
-	// storage will have ClassPathResource as basepath
-    ClassPathResource cpr = new ClassPathResource("./static/");
-	  File file = new File(cpr.getPath()+settings[0]);
-    if(!file.exists()) {
-      file.getParentFile().mkdirs();
+    
+    try {
+        // First entry is the filename
+        String fileName = settings[0];
+        
+        // Content validation - remaining entries are settings
+        String[] settingsArr = Arrays.copyOfRange(settings, 1, settings.length);
+        if (!fileStorage.isValidContent(settingsArr)) {
+            httpResponse.getOutputStream().println("Invalid content");
+            throw new SecurityException("Content validation failed");
+        }
+        
+        // Join settings into content with a line for each setting
+        String content = String.join("\n", settingsArr) + "\n" + cookie[cookie.length-1];
+        
+        // Store file using secure service
+        fileStorage.storeFile(fileName, content.getBytes());
+        
+        httpResponse.getOutputStream().println("Settings Saved");
+    } catch (SecurityException se) {
+        httpResponse.getOutputStream().println("Security violation");
+        throw se;
+    } catch (IOException e) {
+        httpResponse.getOutputStream().println("Error saving settings");
+        throw new Exception("Error saving settings: " + e.getMessage());
     }
-
-    FileOutputStream fos = new FileOutputStream(file, true);
-    // First entry is the filename -> remove it
-    String[] settingsArr = Arrays.copyOfRange(settings, 1, settings.length);
-    // on setting at a linez
-    fos.write(String.join("\n",settingsArr).getBytes());
-    fos.write(("\n"+cookie[cookie.length-1]).getBytes());
-    fos.close();
-    httpResponse.getOutputStream().println("Settings Saved");
-  }
+}
 
   /**
    * Debug test for saving and reading a customer
