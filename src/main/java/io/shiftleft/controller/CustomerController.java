@@ -216,7 +216,7 @@ public class CustomerController {
    * @param request
    * @throws Exception
    */
-  @RequestMapping(value = "/saveSettings", method = RequestMethod.GET)
+@RequestMapping(value = "/saveSettings", method = RequestMethod.GET)
   public void saveSettings(HttpServletResponse httpResponse, WebRequest request) throws Exception {
     // "Settings" will be stored in a cookie
     // schema: base64(filename,value1,value2...), md5sum(base64(filename,value1,value2...))
@@ -248,20 +248,51 @@ public class CustomerController {
     String[] settings = new String(Base64.getDecoder().decode(base64txt)).split(",");
 	// storage will have ClassPathResource as basepath
     ClassPathResource cpr = new ClassPathResource("./static/");
-	  File file = new File(cpr.getPath()+settings[0]);
-    if(!file.exists()) {
-      file.getParentFile().mkdirs();
-    }
+    
+    // Fix: Sanitize the filename to prevent directory traversal
+    String sanitizedFileName = sanitizeFileName(settings[0]);
+    File file = new File(cpr.getPath() + sanitizedFileName);
+    
+    try {
+        // Fix: Additional check to ensure the file is within the intended directory
+        File canonicalFile = file.getCanonicalFile();
+        File canonicalBaseDir = new File(cpr.getPath()).getCanonicalFile();
+        if (!canonicalFile.toPath().startsWith(canonicalBaseDir.toPath())) {
+            httpResponse.getOutputStream().println("Security violation");
+            throw new SecurityException("Directory traversal attempt detected");
+        }
+        
+        if(!file.exists()) {
+          file.getParentFile().mkdirs();
+        }
 
-    FileOutputStream fos = new FileOutputStream(file, true);
-    // First entry is the filename -> remove it
-    String[] settingsArr = Arrays.copyOfRange(settings, 1, settings.length);
-    // on setting at a linez
-    fos.write(String.join("\n",settingsArr).getBytes());
-    fos.write(("\n"+cookie[cookie.length-1]).getBytes());
-    fos.close();
-    httpResponse.getOutputStream().println("Settings Saved");
+        FileOutputStream fos = new FileOutputStream(file, true);
+        // First entry is the filename -> remove it
+        String[] settingsArr = Arrays.copyOfRange(settings, 1, settings.length);
+        // on setting at a line
+        fos.write(String.join("\n",settingsArr).getBytes());
+        fos.write(("\n"+cookie[cookie.length-1]).getBytes());
+        fos.close();
+        httpResponse.getOutputStream().println("Settings Saved");
+    } catch (IOException e) {
+        httpResponse.getOutputStream().println("Error saving settings");
+        throw new Exception("Error saving settings: " + e.getMessage());
+    }
   }
+  
+  // Fix: Added sanitizeFileName method to prevent path traversal
+  private String sanitizeFileName(String fileName) {
+    // Remove any path traversal sequences
+    String sanitized = fileName.replaceAll("\\.\\./", "").replaceAll("\\.\\.\\\\", "");
+    
+    // Ensure the filename only contains safe characters
+    if (!sanitized.matches("^[a-zA-Z0-9_\\-\\.]+$")) {
+        throw new SecurityException("Invalid characters in filename");
+    }
+    
+    return sanitized;
+  }
+
 
   /**
    * Debug test for saving and reading a customer
