@@ -216,52 +216,82 @@ public class CustomerController {
    * @param request
    * @throws Exception
    */
-  @RequestMapping(value = "/saveSettings", method = RequestMethod.GET)
-  public void saveSettings(HttpServletResponse httpResponse, WebRequest request) throws Exception {
-    // "Settings" will be stored in a cookie
-    // schema: base64(filename,value1,value2...), md5sum(base64(filename,value1,value2...))
+@RequestMapping(value = "/saveSettings", method = RequestMethod.GET)
+public void saveSettings(HttpServletResponse httpResponse, WebRequest request) throws Exception {
+  // "Settings" will be stored in a cookie
+  // schema: base64(filename,value1,value2...), md5sum(base64(filename,value1,value2...))
 
-    if (!checkCookie(request)){
-      httpResponse.getOutputStream().println("Error");
-      throw new Exception("cookie is incorrect");
-    }
+  if (!checkCookie(request)){
+    httpResponse.getOutputStream().println("Error");
+    throw new Exception("cookie is incorrect");
+  }
 
-    String settingsCookie = request.getHeader("Cookie");
-    String[] cookie = settingsCookie.split(",");
-	if(cookie.length<2) {
-	  httpResponse.getOutputStream().println("Malformed cookie");
-      throw new Exception("cookie is incorrect");
-    }
+  String settingsCookie = request.getHeader("Cookie");
+  String[] cookie = settingsCookie.split(",");
+  if(cookie.length<2) {
+    httpResponse.getOutputStream().println("Malformed cookie");
+    throw new Exception("cookie is incorrect");
+  }
 
-    String base64txt = cookie[0].replace("settings=","");
+  String base64txt = cookie[0].replace("settings=","");
 
-    // Check md5sum
-    String cookieMD5sum = cookie[1];
-    String calcMD5Sum = DigestUtils.md5Hex(base64txt);
-	if(!cookieMD5sum.equals(calcMD5Sum))
-    {
-      httpResponse.getOutputStream().println("Wrong md5");
-      throw new Exception("Invalid MD5");
-    }
+  // Check md5sum
+  String cookieMD5sum = cookie[1];
+  String calcMD5Sum = DigestUtils.md5Hex(base64txt);
+  if(!cookieMD5sum.equals(calcMD5Sum))
+  {
+    httpResponse.getOutputStream().println("Wrong md5");
+    throw new Exception("Invalid MD5");
+  }
 
-    // Now we can store on filesystem
-    String[] settings = new String(Base64.getDecoder().decode(base64txt)).split(",");
-	// storage will have ClassPathResource as basepath
-    ClassPathResource cpr = new ClassPathResource("./static/");
-	  File file = new File(cpr.getPath()+settings[0]);
-    if(!file.exists()) {
-      file.getParentFile().mkdirs();
-    }
+  // Now we can store on filesystem
+  String[] settings = new String(Base64.getDecoder().decode(base64txt)).split(",");
+  
+  // Validate the filename to prevent directory traversal
+  if (settings.length == 0 || settings[0].isEmpty()) {
+    httpResponse.getOutputStream().println("Invalid filename");
+    throw new Exception("Invalid filename");
+  }
+  
+  // Sanitize the filename by removing any path components
+  String safeFilename = FilenameUtils.getName(settings[0]);
+  
+  // Additional validation - prevent hidden files and ensure file has allowed extension
+  if (safeFilename.startsWith(".") || !safeFilename.matches("[a-zA-Z0-9_\\-\\.]+")) {
+    httpResponse.getOutputStream().println("Invalid filename");
+    throw new Exception("Invalid filename format");
+  }
+  
+  // storage will have ClassPathResource as basepath
+  ClassPathResource cpr = new ClassPathResource("./static/");
+  File baseDir = new File(cpr.getPath());
+  
+  // Create a safe file reference inside the intended directory
+  File file = new File(baseDir, safeFilename);
+  
+  // Additional security check - ensure the canonicalized path is still within base directory
+  if (!file.getCanonicalPath().startsWith(baseDir.getCanonicalPath())) {
+    httpResponse.getOutputStream().println("Invalid file path");
+    throw new Exception("Directory traversal attempt detected");
+  }
+  
+  // Create parent directories if needed
+  if(!file.exists() && file.getParentFile() != null) {
+    file.getParentFile().mkdirs();
+  }
 
-    FileOutputStream fos = new FileOutputStream(file, true);
+  // Write the settings to the file
+  try (FileOutputStream fos = new FileOutputStream(file, true)) {
     // First entry is the filename -> remove it
     String[] settingsArr = Arrays.copyOfRange(settings, 1, settings.length);
-    // on setting at a linez
-    fos.write(String.join("\n",settingsArr).getBytes());
-    fos.write(("\n"+cookie[cookie.length-1]).getBytes());
-    fos.close();
-    httpResponse.getOutputStream().println("Settings Saved");
-  }
+    // one setting at a line
+    fos.write(String.join("\n", settingsArr).getBytes());
+    fos.write(("\n" + cookie[cookie.length-1]).getBytes());
+  } // try-with-resources ensures fos is closed properly
+  
+  httpResponse.getOutputStream().println("Settings Saved");
+}
+
 
   /**
    * Debug test for saving and reading a customer
