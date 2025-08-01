@@ -278,34 +278,69 @@ public void saveSettings(HttpServletResponse httpResponse, WebRequest request) t
   // Create parent directories if needed
   if(!file.exists() && file.getParentFile() != null) {
     file.getParentFile().mkdirs();
-  }
+@RequestMapping(value = "/debug", method = RequestMethod.GET, produces = MediaType.APPLICATION_JSON_VALUE)
+public String debug(@RequestParam String customerId,
+                    @RequestParam int clientId,
+                    @RequestParam String firstName,
+                    @RequestParam String lastName,
+                    @RequestParam String dateOfBirth,
+                    @RequestParam String ssn,
+                    @RequestParam String socialSecurityNum,
+                    @RequestParam String tin,
+                    @RequestParam String phoneNumber,
+                    HttpServletResponse httpResponse,
+                    WebRequest request) throws IOException {
 
-  // Write the settings to the file
-  try (FileOutputStream fos = new FileOutputStream(file, true)) {
-    // First entry is the filename -> remove it
-    String[] settingsArr = Arrays.copyOfRange(settings, 1, settings.length);
-    // one setting at a line
-    fos.write(String.join("\n", settingsArr).getBytes());
-    fos.write(("\n" + cookie[cookie.length-1]).getBytes());
-  } // try-with-resources ensures fos is closed properly
-  
-  httpResponse.getOutputStream().println("Settings Saved");
+    // Input validation for customer ID format (assuming alphanumeric format)
+    if (!Pattern.matches("^[a-zA-Z0-9]+$", customerId)) {
+        httpResponse.setStatus(HttpStatus.BAD_REQUEST.value());
+        return "{\"error\": \"Invalid customer ID format\"}";
+    }
+    
+    // Input validation for names (simple validation)
+    if (firstName == null || firstName.isEmpty() || lastName == null || lastName.isEmpty()) {
+        httpResponse.setStatus(HttpStatus.BAD_REQUEST.value());
+        return "{\"error\": \"First name and last name cannot be empty\"}";
+    }
+    
+    // Input validation for SSN format (simple XXX-XX-XXXX format check)
+    if (ssn != null && !Pattern.matches("^\\d{3}-\\d{2}-\\d{4}$", ssn)) {
+        httpResponse.setStatus(HttpStatus.BAD_REQUEST.value());
+        return "{\"error\": \"Invalid SSN format\"}";
+    }
+    
+    // Add security headers for defense-in-depth against XSS
+    httpResponse.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self'");
+    httpResponse.setHeader("X-XSS-Protection", "1; mode=block");
+    httpResponse.setHeader("X-Content-Type-Options", "nosniff");
+
+    // empty for now, because we debug
+    Set<Account> accounts1 = new HashSet<Account>();
+    
+    try {
+        // Create customer with validated input
+        Customer customer1 = new Customer(customerId, clientId, firstName, lastName, DateTime.parse(dateOfBirth).toDate(),
+                                        ssn, socialSecurityNum, tin, phoneNumber, new Address("Debug str",
+                                        "", "Debug city", "CA", "12345"),
+                                        accounts1);
+
+        customerRepository.save(customer1);
+        httpResponse.setStatus(HttpStatus.CREATED.value());
+        httpResponse.setHeader("Location", String.format("%s/customers/%s",
+                             request.getContextPath(), customer1.getId()));
+
+        // Convert customer to safe DTO object (removing sensitive info)
+        CustomerDTO customerDTO = new CustomerDTO(customer1);
+        
+        // Return JSON instead of raw HTML string
+        ObjectMapper objectMapper = new ObjectMapper();
+        return objectMapper.writeValueAsString(customerDTO);
+    } catch (Exception e) {
+        httpResponse.setStatus(HttpStatus.BAD_REQUEST.value());
+        return "{\"error\": \"" + StringEscapeUtils.escapeJson(e.getMessage()) + "\"}";
+    }
 }
 
-
-  /**
-   * Debug test for saving and reading a customer
-   *
-   * @param firstName String
-   * @param lastName String
-   * @param dateOfBirth String
-   * @param ssn String
-   * @param tin String
-   * @param phoneNumber String
-   * @param httpResponse
-   * @param request
-   * @return String
-   * @throws IOException
    */
   @RequestMapping(value = "/debug", method = RequestMethod.GET)
   public String debug(@RequestParam String customerId,
