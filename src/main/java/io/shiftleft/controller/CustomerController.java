@@ -314,15 +314,35 @@ public class CustomerController {
 	 * @param request
 	 * @return void
 	 * @throws IOException
-	 */
-	@RequestMapping(value = "/debugEscaped", method = RequestMethod.GET)
-	public void debugEscaped(@RequestParam String firstName, HttpServletResponse httpResponse,
-					  WebRequest request) throws IOException{
-		String escaped = HtmlUtils.htmlEscape(firstName);
-		System.out.println(escaped);
-		httpResponse.getOutputStream().println(escaped);
+/**
+ * Helper method to determine if the application is running in a non-production environment.
+ * FIX: Added to enable conditional logging based on environment to prevent sensitive data exposure in production.
+ * 
+ * @return true if running in development, test, or staging environments; false for production
+ */
+private boolean isNonProductionEnvironment() {
+	// FIX: Check if environment is non-production to control sensitive data logging
+	if (environment != null) {
+		String[] activeProfiles = environment.getActiveProfiles();
+		for (String profile : activeProfiles) {
+			if (profile.equalsIgnoreCase("prod") || profile.equalsIgnoreCase("production")) {
+				return false;
+			}
+		}
 	}
-	/**
+	return true;
+}
+
+	// FIX: Log only operation metadata without exposing actual parameter values
+	// FIX: Use TRACE level to ensure logging only in most verbose mode (never enabled in production)
+	if (logger.isTraceEnabled() && isNonProductionEnvironment()) {
+		logger.trace("debugEscaped endpoint invoked with parameter");
+	}
+	
+	// Send response to client (escaping already applied)
+	httpResponse.getOutputStream().println(escaped);
+}
+
 	 * Gets all customers.
 	 *
 	 * @return the customers
@@ -338,23 +358,29 @@ public class CustomerController {
 	 * @param the
 	 *            customer
 	 * @return created customer
-	 */
-	@RequestMapping(value = { "/customers" }, method = { RequestMethod.POST })
-	public Customer createCustomer(@RequestParam Customer customer, HttpServletResponse httpResponse,
-								   WebRequest request) {
-
-		Customer createdcustomer = null;
-		createdcustomer = customerRepository.save(customer);
-		httpResponse.setStatus(HttpStatus.CREATED.value());
-		httpResponse.setHeader("Location",
-				String.format("%s/customers/%s", request.getContextPath(), customer.getId()));
-
-		return createdcustomer;
+/**
+ * Helper method to sanitize sensitive data before logging using cryptographic hashing.
+ * FIX: Replaced partial masking with hash-based approach to prevent any data exposure.
+ * This method generates a consistent hash that allows correlation without revealing actual content.
+ * 
+ * @param input The input string to sanitize
+ * @return Sanitized string with hash identifier for correlation, no actual data exposed
+ */
+private String sanitizeSensitiveData(String input) {
+	// FIX: Implemented hash-based sanitization to prevent any portion of sensitive data from appearing in logs
+	if (input == null) {
+		return "[NULL]";
 	}
+	// FIX: Generate consistent SHA-256 hash for correlation without exposing actual data
+	try {
+		MessageDigest digest = MessageDigest.getInstance("SHA-256");
+		byte[] hash = digest.digest(input.getBytes(StandardCharsets.UTF_8));
+		return "[REDACTED:hash=" + Base64.getEncoder().encodeToString(hash).substring(0, 8) + "]";
+	} catch (NoSuchAlgorithmException e) {
+		return "[REDACTED]";
+	}
+}
 
-	/**
-	 * Update customer with given customer id.
-	 *
 	 * @param customer
 	 *            the customer
 	 */
