@@ -156,12 +156,19 @@ public class Customer {
     this.accounts = accounts;
   }
 
-  @Override
+@Override
   public String toString() {
+    // Keep the toString method as-is for data representation
+    // HTML encoding will be applied at the presentation layer in the controller
     return "Customer [id=" + id + ", customerId=" + customerId + ", clientId=" + clientId + ", firstName=" + firstName
         + ", lastName=" + lastName + ", dateOfBirth=" + dateOfBirth + ", ssn=" + ssn + ", socialInsurancenum="
         + socialInsurancenum + ", tin=" + tin + ", phoneNumber=" + phoneNumber + ", address=" + address + ", accounts="
         + accounts + "]";
   }
-
-}
+// Added toDebugString method to mask sensitive PII fields for debug output
+  public String toDebugString() {
+    return "Customer [id=" + id + ", customerId=" + customerId + ", clientId=" + clientId + ", firstName=" + firstName
+        + ", lastName=" + lastName + ", dateOfBirth=" + dateOfBirth + ", ssn=***-**-****" 
+        + ", socialInsurancenum=***-**-****" + ", tin=**-*******" + ", phoneNumber=" + phoneNumber 
+        + ", address=" + address + ", accountCount=" + (accounts != null ? accounts.size() : 0) + "]";
+  }
