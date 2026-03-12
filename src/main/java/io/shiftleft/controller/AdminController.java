@@ -28,31 +28,34 @@ public class AdminController {
   private String fail = "redirect:/";
 
   // helper
-  private boolean isAdmin(String auth)
+// FIX: Replaced insecure Java deserialization with secure JWT token validation
+private boolean isAdmin(String auth)
   {
     try {
-      ByteArrayInputStream bis = new ByteArrayInputStream(Base64.getDecoder().decode(auth));
-      ObjectInputStream objectInputStream = new ObjectInputStream(bis);
-      Object authToken = objectInputStream.readObject();
-      return ((AuthToken) authToken).isAdmin();
+      // FIX: Add input validation to prevent malformed input from reaching JWT parser
+      if (auth == null || auth.isEmpty() || !auth.matches("^[A-Za-z0-9-_]+\\.[A-Za-z0-9-_]+\\.[A-Za-z0-9-_]+$")) {
+        System.out.println("Invalid token format");
+        return false;
+      }
+      
+      // FIX: Using JWT parser with signature verification and issuer/audience validation
+      Claims claims = Jwts.parserBuilder()
+          .setSigningKey(getSecretKey())
+          .requireIssuer("AdminController")
+          .requireAudience("admin-service")
+          .build()
+          .parseClaimsJws(auth)
+          .getBody();
+      // FIX: Extract admin claim from validated JWT token
+      Boolean isAdmin = claims.get("admin", Boolean.class);
+      return isAdmin != null && isAdmin;
     } catch (Exception ex) {
-      System.out.println(" cookie cannot be deserialized: "+ex.getMessage());
+      // FIX: Generic error message to prevent information leakage
+      System.out.println("Invalid or tampered token");
       return false;
     }
   }
 
-  //
-  @RequestMapping(value = "/admin/printSecrets", method = RequestMethod.POST)
-  public String doPostPrintSecrets(HttpServletResponse response, HttpServletRequest request) {
-    return fail;
-  }
-
-
-  @RequestMapping(value = "/admin/printSecrets", method = RequestMethod.GET)
-  public String doGetPrintSecrets(@CookieValue(value = "auth", defaultValue = "notset") String auth, HttpServletResponse response, HttpServletRequest request) throws Exception {
-
-    if (request.getSession().getAttribute("auth") == null) {
-      return fail;
     }
 
     String authToken = request.getSession().getAttribute("auth").toString();
@@ -81,13 +84,14 @@ public class AdminController {
    * @return redirect to company numbers
    * @throws Exception
    */
-  @RequestMapping(value = "/admin/login", method = RequestMethod.POST)
+@RequestMapping(value = "/admin/login", method = RequestMethod.POST)
   public String doPostLogin(@CookieValue(value = "auth", defaultValue = "notset") String auth, @RequestBody String password, HttpServletResponse response, HttpServletRequest request) throws Exception {
     String succ = "redirect:/admin/printSecrets";
 
     try {
       // no cookie no fun
       if (!auth.equals("notset")) {
+        // FIX: isAdmin now validates JWT token instead of deserializing objects
         if(isAdmin(auth)) {
           request.getSession().setAttribute("auth",auth);
           return succ;
@@ -102,12 +106,15 @@ public class AdminController {
       // compare pass
       if(pass[1] != null && pass[1].length()>0 && pass[1].equals("shiftleftsecret"))
       {
-        AuthToken authToken = new AuthToken(AuthToken.ADMIN);
-        ByteArrayOutputStream bos = new ByteArrayOutputStream();
-        ObjectOutputStream oos = new ObjectOutputStream(bos);
-        oos.writeObject(authToken);
-        String cookieValue = new String(Base64.getEncoder().encode(bos.toByteArray()));
-        response.addCookie(new Cookie("auth", cookieValue ));
+        // FIX: Generate secure JWT token with user identity instead of serializing AuthToken object
+        String cookieValue = generateAuthToken(true, "admin");
+        
+        // FIX: Set secure cookie attributes to prevent token theft
+        Cookie authCookie = new Cookie("auth", cookieValue);
+        authCookie.setHttpOnly(true);
+        authCookie.setSecure(true);
+        authCookie.setPath("/");
+        response.addCookie(authCookie);
 
         // cookie is lost after redirection
         request.getSession().setAttribute("auth",cookieValue);
@@ -120,18 +127,43 @@ public class AdminController {
     {
       ex.printStackTrace();
       // no succ == fail
-      return fail;
+// FIX: New method to generate secure JWT tokens with expiration, issuer, audience, and subject claims
+private String generateAuthToken(boolean isAdmin, String username) {
+    try {
+      // FIX: Add token expiration to limit validity window (15 minutes)
+      long expirationMillis = System.currentTimeMillis() + (15 * 60 * 1000);
+      Date expirationDate = new Date(expirationMillis);
+      
+      // FIX: Create JWT with admin claim, user identity, expiration, issuer, and audience
+      return Jwts.builder()
+          .setSubject(username)
+          .claim("admin", isAdmin)
+          .setIssuer("AdminController")
+          .setAudience("admin-service")
+          .setIssuedAt(new Date())
+          .setExpiration(expirationDate)
+          .signWith(getSecretKey(), SignatureAlgorithm.HS256)
+          .compact();
+    } catch (Exception ex) {
+      throw new RuntimeException("Failed to generate authentication token", ex);
     }
   }
-
-  /**
-   * Same as POST but just a redirect
-   * @param response
-   * @param request
-   * @return redirect
-   */
-  @RequestMapping(value = "/admin/login", method = RequestMethod.GET)
-  public String doGetLogin(HttpServletResponse response, HttpServletRequest request) {
-    return "redirect:/";
+// FIX: Secure key management for JWT signing and validation
+private static SecretKey SECRET_KEY = null;
+  
+  private Key getSecretKey() {
+    // FIX: Load key from environment variable for production use, with fallback and warning
+    if (SECRET_KEY == null) {
+      String keyString = System.getenv("JWT_SECRET_KEY");
+      
+      if (keyString == null || keyString.isEmpty()) {
+        System.err.println("CRITICAL SECURITY WARNING: JWT_SECRET_KEY environment variable not set. Using generated key that will invalidate all tokens on restart. This configuration is UNSAFE for production.");
+        SECRET_KEY = Keys.secretKeyFor(SignatureAlgorithm.HS256);
+      } else {
+        // FIX: Load persistent key from environment variable to prevent token invalidation on restart
+        byte[] decodedKey = Base64.getDecoder().decode(keyString);
+        SECRET_KEY = Keys.hmacShaKeyFor(decodedKey);
+      }
+    }
+    return SECRET_KEY;
   }
-}
