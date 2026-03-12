@@ -277,114 +277,156 @@ public class CustomerController {
    * @return String
    * @throws IOException
    */
-  @RequestMapping(value = "/debug", method = RequestMethod.GET)
-  public String debug(@RequestParam String customerId,
-					  @RequestParam int clientId,
-					  @RequestParam String firstName,
-                      @RequestParam String lastName,
-                      @RequestParam String dateOfBirth,
-                      @RequestParam String ssn,
-					  @RequestParam String socialSecurityNum,
-                      @RequestParam String tin,
-                      @RequestParam String phoneNumber,
-                      HttpServletResponse httpResponse,
-                     WebRequest request) throws IOException{
+@RequestMapping(value = "/debug", method = RequestMethod.GET)
+public ModelAndView debug(@Valid @ModelAttribute CustomerDebugRequest request,
+                         BindingResult bindingResult,
+                         HttpServletResponse httpResponse,
+                         WebRequest webRequest) throws IOException {
 
-    // empty for now, because we debug
-    Set<Account> accounts1 = new HashSet<Account>();
-    //dateofbirth example -> "1982-01-10"
-    Customer customer1 = new Customer(customerId, clientId, firstName, lastName, DateTime.parse(dateOfBirth).toDate(),
-                                      ssn, socialSecurityNum, tin, phoneNumber, new Address("Debug str",
-                                      "", "Debug city", "CA", "12345"),
-                                      accounts1);
-
-    customerRepository.save(customer1);
-    httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId()));
-
-    return customer1.toString().toLowerCase().replace("script","");
+  if (bindingResult.hasErrors()) {
+    throw new IllegalArgumentException("Validation failed: " + bindingResult.getAllErrors());
   }
 
-	/**
-	 * Debug test for saving and reading a customer
-	 *
-	 * @param firstName String
-	 * @param httpResponse
-	 * @param request
-	 * @return void
-	 * @throws IOException
-	 */
-	@RequestMapping(value = "/debugEscaped", method = RequestMethod.GET)
-	public void debugEscaped(@RequestParam String firstName, HttpServletResponse httpResponse,
-					  WebRequest request) throws IOException{
-		String escaped = HtmlUtils.htmlEscape(firstName);
-		System.out.println(escaped);
-		httpResponse.getOutputStream().println(escaped);
-	}
-	/**
-	 * Gets all customers.
-	 *
-	 * @return the customers
-	 */
-	@RequestMapping(value = "/customers", method = RequestMethod.GET)
-	public List<Customer> getCustomers() {
-		return (List<Customer>) customerRepository.findAll();
-	}
+  Set<Account> accounts1 = new HashSet<Account>();
+  
+  Customer customer1 = new Customer(request.getCustomerId(), 
+                                    request.getClientId(), 
+                                    request.getFirstName(), 
+                                    request.getLastName(), 
+                                    DateTime.parse(request.getDateOfBirth()).toDate(),
+                                    request.getSsn(), 
+                                    request.getSocialSecurityNum(), 
+                                    request.getTin(), 
+                                    request.getPhoneNumber(), 
+                                    new Address("Debug str", "", "Debug city", "CA", "12345"),
+                                    accounts1);
 
-	/**
-	 * Create a new customer and return in response with HTTP 201
-	 *
-	 * @param the
-	 *            customer
-	 * @return created customer
-	 */
-	@RequestMapping(value = { "/customers" }, method = { RequestMethod.POST })
-	public Customer createCustomer(@RequestParam Customer customer, HttpServletResponse httpResponse,
-								   WebRequest request) {
+  customerRepository.save(customer1);
+  httpResponse.setStatus(HttpStatus.CREATED.value());
+  httpResponse.setHeader("Location", String.format("%s/customers/%s",
+                         webRequest.getContextPath(), customer1.getId()));
 
-		Customer createdcustomer = null;
-		createdcustomer = customerRepository.save(customer);
-		httpResponse.setStatus(HttpStatus.CREATED.value());
-		httpResponse.setHeader("Location",
-				String.format("%s/customers/%s", request.getContextPath(), customer.getId()));
-
-		return createdcustomer;
-	}
-
-	/**
-	 * Update customer with given customer id.
-	 *
-	 * @param customer
-	 *            the customer
-	 */
-	@RequestMapping(value = { "/customers/{customerId}" }, method = { RequestMethod.PUT })
-	public void updateCustomer(@RequestBody Customer customer, @PathVariable("customerId") Long customerId,
-			HttpServletResponse httpResponse) {
-
-		if (!customerRepository.exists(customerId)) {
-			httpResponse.setStatus(HttpStatus.NOT_FOUND.value());
-		} else {
-			customerRepository.save(customer);
-			httpResponse.setStatus(HttpStatus.NO_CONTENT.value());
-		}
-	}
-
-	/**
-	 * Deletes the customer with given customer id if it exists and returns
-	 * HTTP204.
-	 *
-	 * @param customerId
-	 *            the customer id
-	 */
-	@RequestMapping(value = "/customers/{customerId}", method = RequestMethod.DELETE)
-	public void removeCustomer(@PathVariable("customerId") Long customerId, HttpServletResponse httpResponse) {
-
-		if (customerRepository.exists(customerId)) {
-			customerRepository.delete(customerId);
-		}
-
-		httpResponse.setStatus(HttpStatus.NO_CONTENT.value());
-	}
-
+  httpResponse.setContentType("text/html; charset=UTF-8");
+  
+  httpResponse.setHeader("X-Content-Type-Options", "nosniff");
+  
+  httpResponse.setHeader("Content-Security-Policy", 
+                         "default-src 'none'; script-src 'self'; style-src 'self'; " +
+                         "img-src 'self'; base-uri 'self'; form-action 'self';");
+  
+  httpResponse.setHeader("Set-Cookie", "JSESSIONID=value; HttpOnly; Secure; SameSite=Strict");
+  
+  ModelAndView modelAndView = new ModelAndView("debug");
+  modelAndView.addObject("customerData", Encode.forHtml(customer1.toString()));
+  return modelAndView;
 }
+
+public static class CustomerDebugRequest {
+  
+  @NotNull(message = "Customer ID cannot be null")
+  @Pattern(regexp = "^[a-zA-Z0-9_-]+$", message = "Invalid customerId format")
+  private String customerId;
+  
+  @NotNull(message = "Client ID cannot be null")
+  private int clientId;
+  
+  @NotNull(message = "First name cannot be null")
+  @Pattern(regexp = "^[a-zA-Z\\s]+$", message = "Invalid firstName format")
+  private String firstName;
+  
+  @NotNull(message = "Last name cannot be null")
+  @Pattern(regexp = "^[a-zA-Z\\s]+$", message = "Invalid lastName format")
+  private String lastName;
+  
+  @NotNull(message = "Date of birth cannot be null")
+  private String dateOfBirth;
+  
+  @NotNull(message = "SSN cannot be null")
+  @Pattern(regexp = "^\\d{3}-\\d{2}-\\d{4}$", message = "Invalid SSN format")
+  private String ssn;
+  
+  @NotNull(message = "Social security number cannot be null")
+  @Pattern(regexp = "^\\d{3}-\\d{2}-\\d{4}$", message = "Invalid social security number format")
+  private String socialSecurityNum;
+  
+  @NotNull(message = "TIN cannot be null")
+  @Pattern(regexp = "^\\d{2}-\\d{7}$", message = "Invalid TIN format")
+  private String tin;
+  
+  @NotNull(message = "Phone number cannot be null")
+  @Pattern(regexp = "^[0-9\\-]+$", message = "Invalid phone number format")
+  private String phoneNumber;
+  
+  public String getCustomerId() {
+    return customerId;
+  }
+  
+  public void setCustomerId(String customerId) {
+    this.customerId = customerId;
+  }
+  
+  public int getClientId() {
+    return clientId;
+  }
+  
+  public void setClientId(int clientId) {
+    this.clientId = clientId;
+  }
+  
+  public String getFirstName() {
+    return firstName;
+  }
+  
+  public void setFirstName(String firstName) {
+    this.firstName = firstName;
+  }
+  
+  public String getLastName() {
+    return lastName;
+  }
+  
+  public void setLastName(String lastName) {
+    this.lastName = lastName;
+  }
+  
+  public String getDateOfBirth() {
+    return dateOfBirth;
+  }
+  
+  public void setDateOfBirth(String dateOfBirth) {
+    this.dateOfBirth = dateOfBirth;
+  }
+  
+  public String getSsn() {
+    return ssn;
+  }
+  
+  public void setSsn(String ssn) {
+    this.ssn = ssn;
+  }
+  
+  public String getSocialSecurityNum() {
+    return socialSecurityNum;
+  }
+  
+  public void setSocialSecurityNum(String socialSecurityNum) {
+    this.socialSecurityNum = socialSecurityNum;
+  }
+  
+  public String getTin() {
+    return tin;
+  }
+  
+  public void setTin(String tin) {
+    this.tin = tin;
+  }
+  
+  public String getPhoneNumber() {
+    return phoneNumber;
+  }
+  
+  public void setPhoneNumber(String phoneNumber) {
+    this.phoneNumber = phoneNumber;
+  }
+}
+
