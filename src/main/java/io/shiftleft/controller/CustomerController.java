@@ -277,16 +277,23 @@ public class CustomerController {
    * @return String
    * @throws IOException
    */
-  @RequestMapping(value = "/debug", method = RequestMethod.GET)
-  public String debug(@RequestParam String customerId,
+@RequestMapping(value = "/debug", method = RequestMethod.GET)
+  public String debug(
+                      // Added input validation constraints to prevent malicious input patterns
+                      @RequestParam @NotBlank @Pattern(regexp = "^[a-zA-Z0-9-_]{1,50}$", message = "Invalid customerId format") String customerId,
 					  @RequestParam int clientId,
-					  @RequestParam String firstName,
-                      @RequestParam String lastName,
-                      @RequestParam String dateOfBirth,
-                      @RequestParam String ssn,
-					  @RequestParam String socialSecurityNum,
-                      @RequestParam String tin,
-                      @RequestParam String phoneNumber,
+                      // Added validation to allow only alphabetic characters and spaces for names
+					  @RequestParam @NotBlank @Pattern(regexp = "^[a-zA-Z\\s]{1,50}$", message = "Invalid firstName format") String firstName,
+                      @RequestParam @NotBlank @Pattern(regexp = "^[a-zA-Z\\s]{1,50}$", message = "Invalid lastName format") String lastName,
+                      // Added date format validation
+                      @RequestParam @NotBlank @Pattern(regexp = "^\\d{4}-\\d{2}-\\d{2}$", message = "Invalid dateOfBirth format") String dateOfBirth,
+                      // Added SSN format validation
+                      @RequestParam @NotBlank @Pattern(regexp = "^\\d{3}-\\d{2}-\\d{4}$", message = "Invalid ssn format") String ssn,
+					  @RequestParam @NotBlank @Pattern(regexp = "^\\d{3}-\\d{2}-\\d{4}$", message = "Invalid socialSecurityNum format") String socialSecurityNum,
+                      // Added TIN format validation
+                      @RequestParam @NotBlank @Pattern(regexp = "^\\d{2}-\\d{7}$", message = "Invalid tin format") String tin,
+                      // Added phone number format validation
+                      @RequestParam @NotBlank @Pattern(regexp = "^[0-9\\-\\+\\(\\)\\s]{7,20}$", message = "Invalid phoneNumber format") String phoneNumber,
                       HttpServletResponse httpResponse,
                      WebRequest request) throws IOException{
 
@@ -303,25 +310,20 @@ public class CustomerController {
     httpResponse.setHeader("Location", String.format("%s/customers/%s",
                            request.getContextPath(), customer1.getId()));
 
-    return customer1.toString().toLowerCase().replace("script","");
+    // Set proper Content-Type headers to prevent XSS interpretation
+    httpResponse.setContentType("text/plain; charset=UTF-8");
+    httpResponse.setHeader("X-Content-Type-Options", "nosniff");
+    // Added Content Security Policy header for browser-level XSS protection
+    httpResponse.setHeader("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'");
+    
+    // Apply proper HTML encoding and write directly to response output stream to prevent Spring MVC view resolution
+    String sanitizedOutput = HtmlUtils.htmlEscape(customer1.toDebugString());
+    httpResponse.getWriter().write(sanitizedOutput);
+    httpResponse.getWriter().flush();
+    // Return null to prevent Spring MVC from further processing the response
+    return null;
   }
 
-	/**
-	 * Debug test for saving and reading a customer
-	 *
-	 * @param firstName String
-	 * @param httpResponse
-	 * @param request
-	 * @return void
-	 * @throws IOException
-	 */
-	@RequestMapping(value = "/debugEscaped", method = RequestMethod.GET)
-	public void debugEscaped(@RequestParam String firstName, HttpServletResponse httpResponse,
-					  WebRequest request) throws IOException{
-		String escaped = HtmlUtils.htmlEscape(firstName);
-		System.out.println(escaped);
-		httpResponse.getOutputStream().println(escaped);
-	}
 	/**
 	 * Gets all customers.
 	 *
