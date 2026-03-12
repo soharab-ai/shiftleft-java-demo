@@ -277,18 +277,30 @@ public class CustomerController {
    * @return String
    * @throws IOException
    */
-  @RequestMapping(value = "/debug", method = RequestMethod.GET)
-  public String debug(@RequestParam String customerId,
-					  @RequestParam int clientId,
-					  @RequestParam String firstName,
-                      @RequestParam String lastName,
-                      @RequestParam String dateOfBirth,
-                      @RequestParam String ssn,
-					  @RequestParam String socialSecurityNum,
-                      @RequestParam String tin,
-                      @RequestParam String phoneNumber,
-                      HttpServletResponse httpResponse,
-                     WebRequest request) throws IOException{
+// FIX: Changed return type to ResponseEntity<Map<String, String>> and added @ResponseBody with JSON response
+// FIX: Added produces = "application/json" to eliminate HTML context and prevent XSS by design
+@RequestMapping(value = "/debug", method = RequestMethod.GET, produces = "application/json")
+@ResponseBody
+public ResponseEntity<Map<String, String>> debug(
+      // FIX: Added @Size validation to prevent buffer overflow and excessive data alongside regex validation
+      @RequestParam @Pattern(regexp = "^[a-zA-Z0-9\\s-]+$", message = "Invalid customerId format") 
+      @Size(min=1, max=50, message = "CustomerId must be between 1 and 50 characters") String customerId,
+      @RequestParam int clientId,
+      @RequestParam @Pattern(regexp = "^[a-zA-Z0-9\\s-]+$", message = "Invalid firstName format") 
+      @Size(min=1, max=100, message = "FirstName must be between 1 and 100 characters") String firstName,
+      @RequestParam @Pattern(regexp = "^[a-zA-Z0-9\\s-]+$", message = "Invalid lastName format") 
+      @Size(min=1, max=100, message = "LastName must be between 1 and 100 characters") String lastName,
+      @RequestParam String dateOfBirth,
+      @RequestParam @Pattern(regexp = "^[0-9-]+$", message = "Invalid SSN format") 
+      @Size(min=9, max=11, message = "SSN must be between 9 and 11 characters") String ssn,
+      @RequestParam @Pattern(regexp = "^[0-9-]+$", message = "Invalid socialSecurityNum format") 
+      @Size(min=9, max=11, message = "SocialSecurityNum must be between 9 and 11 characters") String socialSecurityNum,
+      @RequestParam @Pattern(regexp = "^[0-9-]+$", message = "Invalid TIN format") 
+      @Size(min=9, max=11, message = "TIN must be between 9 and 11 characters") String tin,
+      @RequestParam @Pattern(regexp = "^[0-9-]+$", message = "Invalid phoneNumber format") 
+      @Size(min=10, max=15, message = "PhoneNumber must be between 10 and 15 characters") String phoneNumber,
+      HttpServletResponse httpResponse,
+      WebRequest request) throws IOException{
 
     // empty for now, because we debug
     Set<Account> accounts1 = new HashSet<Account>();
@@ -299,12 +311,23 @@ public class CustomerController {
                                       accounts1);
 
     customerRepository.save(customer1);
-    httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId()));
-
-    return customer1.toString().toLowerCase().replace("script","");
+    
+    // FIX: Set X-Content-Type-Options header to prevent MIME sniffing
+    httpResponse.setHeader("X-Content-Type-Options", "nosniff");
+    
+    // FIX: Return structured JSON response instead of raw HTML string to eliminate XSS vulnerability
+    // FIX: Only expose necessary fields following principle of least privilege
+    Map<String, String> response = new HashMap<>();
+    response.put("customerId", customer1.getId());
+    response.put("status", "created");
+    response.put("location", String.format("%s/customers/%s", 
+        request.getContextPath(), customer1.getId()));
+    
+    // FIX: Use ResponseEntity with structured data and proper HTTP status
+    // This eliminates the need for HtmlUtils.htmlEscape as JSON is not rendered as HTML
+    return ResponseEntity.status(HttpStatus.CREATED).body(response);
   }
+
 
 	/**
 	 * Debug test for saving and reading a customer
