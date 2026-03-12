@@ -216,7 +216,7 @@ public class CustomerController {
    * @param request
    * @throws Exception
    */
-  @RequestMapping(value = "/saveSettings", method = RequestMethod.GET)
+@RequestMapping(value = "/saveSettings", method = RequestMethod.POST) // SECURITY FIX: Changed from GET to POST for state-changing operation
   public void saveSettings(HttpServletResponse httpResponse, WebRequest request) throws Exception {
     // "Settings" will be stored in a cookie
     // schema: base64(filename,value1,value2...), md5sum(base64(filename,value1,value2...))
@@ -246,22 +246,74 @@ public class CustomerController {
 
     // Now we can store on filesystem
     String[] settings = new String(Base64.getDecoder().decode(base64txt)).split(",");
-	// storage will have ClassPathResource as basepath
-    ClassPathResource cpr = new ClassPathResource("./static/");
-	  File file = new File(cpr.getPath()+settings[0]);
-    if(!file.exists()) {
-      file.getParentFile().mkdirs();
+    
+    // SECURITY FIX: Whitelist-based validation - only allow approved filenames
+    if (!isFilenameAllowed(settings[0])) {
+        throw new SecurityException("Unauthorized filename");
     }
+    
+    // SECURITY FIX: Use absolute path from configuration with strict validation
+    String BASE_DIR = System.getProperty("app.settings.dir", "./static");
+    Path basePath = Paths.get(BASE_DIR).toAbsolutePath().normalize();
+    
+    // SECURITY FIX: Verify base directory exists and is writable
+    if (!Files.isDirectory(basePath) || !Files.isWritable(basePath)) {
+        throw new SecurityException("Invalid storage directory");
+    }
+    
+    // SECURITY FIX: Generate server-side controlled filename instead of user-provided
+    String serverFilename = generateSecureFilename(settings[0]);
+// SECURITY FIX: Whitelist-based validation for approved filenames
+  private static final Set<String> ALLOWED_FILENAMES = new HashSet<>(Arrays.asList(
+      "user-settings.txt",
+      "preferences.txt",
+      "config.txt",
+      "app-config.cfg",
+      "user-preferences.cfg"
+  ));
+  
+  private boolean isFilenameAllowed(String filename) {
+    return ALLOWED_FILENAMES.contains(filename);
+  }
+// SECURITY FIX: Generate server-controlled filename with sanitization
+  private String generateSecureFilename(String requestedFilename) throws SecurityException {
+    if (requestedFilename == null || requestedFilename.isEmpty()) {
+        throw new SecurityException("Filename cannot be empty");
+    }
+    
+    // Remove any directory traversal sequences and path separators
+    String sanitized = requestedFilename.replaceAll("\\.\\.", "");
+    sanitized = sanitized.replaceAll("/", "");
+    sanitized = sanitized.replaceAll("\\\\", "");
+    sanitized = sanitized.replaceAll("[^a-zA-Z0-9._-]", "");
+    
+    if (sanitized.isEmpty()) {
+        throw new SecurityException("Invalid filename after sanitization");
+    }
+    
+    return sanitized;
+  }
 
-    FileOutputStream fos = new FileOutputStream(file, true);
-    // First entry is the filename -> remove it
-    String[] settingsArr = Arrays.copyOfRange(settings, 1, settings.length);
-    // on setting at a linez
-    fos.write(String.join("\n",settingsArr).getBytes());
-    fos.write(("\n"+cookie[cookie.length-1]).getBytes());
-    fos.close();
+    if (totalSize > 1024 * 1024) {
+        throw new SecurityException("Settings data exceeds 1MB limit");
+    }
+    
+    // SECURITY FIX: Use atomic file operations with temporary files
+    Path tempFile = Files.createTempFile(basePath, "settings-", ".tmp");
+    try {
+        // Write to temporary file first
+        Files.write(tempFile, contentToWrite.getBytes(StandardCharsets.UTF_8));
+        // Atomic move to target location
+        Files.move(tempFile, targetPath, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+    } catch (Exception e) {
+        // Clean up temporary file on error
+        Files.deleteIfExists(tempFile);
+        throw e;
+    }
+    
     httpResponse.getOutputStream().println("Settings Saved");
   }
+
 
   /**
    * Debug test for saving and reading a customer
