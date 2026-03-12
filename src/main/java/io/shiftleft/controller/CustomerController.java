@@ -277,8 +277,11 @@ public class CustomerController {
    * @return String
    * @throws IOException
    */
-  @RequestMapping(value = "/debug", method = RequestMethod.GET)
-  public String debug(@RequestParam String customerId,
+// Restricted access to administrators only - prevents unauthorized attacker access
+  @PreAuthorize("hasRole('ADMIN')")
+  @RequestMapping(value = "/debug", method = RequestMethod.GET, produces = MediaType.APPLICATION_JSON_VALUE)
+  @ResponseBody
+  public ResponseEntity<DebugResponse> debug(@RequestParam String customerId,
 					  @RequestParam int clientId,
 					  @RequestParam String firstName,
                       @RequestParam String lastName,
@@ -290,24 +293,59 @@ public class CustomerController {
                       HttpServletResponse httpResponse,
                      WebRequest request) throws IOException{
 
-    // empty for now, because we debug
-    Set<Account> accounts1 = new HashSet<Account>();
-    //dateofbirth example -> "1982-01-10"
-    Customer customer1 = new Customer(customerId, clientId, firstName, lastName, DateTime.parse(dateOfBirth).toDate(),
-                                      ssn, socialSecurityNum, tin, phoneNumber, new Address("Debug str",
-                                      "", "Debug city", "CA", "12345"),
-                                      accounts1);
+    // Disable debug endpoint in production - eliminates XSS attack surface in production
+    if (!environment.acceptsProfiles(Profiles.of("dev", "test"))) {
+        httpResponse.setStatus(HttpStatus.NOT_FOUND.value());
+        return ResponseEntity.notFound().build();
+    }
 
-    customerRepository.save(customer1);
-    httpResponse.setStatus(HttpStatus.CREATED.value());
+    // Input validation - sanitize and validate all user inputs to prevent XSS
+    if (!isValidInput(customerId) || !isValidName(firstName) || !isValidName(lastName) 
+        || !isValidSSN(ssn) || !isValidSSN(socialSecurityNum) 
+        || !isValidTIN(tin) || !isValidPhoneNumber(phoneNumber)) {
+        httpResponse.setStatus(HttpStatus.BAD_REQUEST.value());
+        // Return structured JSON response instead of HTML
+// Helper method to validate general input - prevents XSS injection
+  private boolean isValidInput(String input) {
+    if (input == null || input.trim().isEmpty()) {
+        return false;
+    }
+    // Allow alphanumeric, spaces, hyphens, and basic punctuation, limit length
+    return input.matches("^[a-zA-Z0-9\\s\\-_]{1,100}$");
+  }
+// Helper method to validate name fields - prevents XSS injection
+  private boolean isValidName(String name) {
+    if (name == null || name.trim().isEmpty()) {
+        return false;
+    }
+    // Allow only letters, spaces, hyphens, and apostrophes for names
+    return name.matches("^[a-zA-Z\\s\\-']{1,50}$");
+  }
+// Helper method to validate TIN format - prevents injection attacks
+  private boolean isValidTIN(String tin) {
+    if (tin == null || tin.trim().isEmpty()) {
+        return false;
+    }
+    // TIN format: XX-XXXXXXX
+    return tin.matches("^\\d{2}-\\d{7}$");
+  }
+
+    // SSN format: XXX-XX-XXXX
+    return ssn.matches("^\\d{3}-\\d{2}-\\d{4}$");
+  }
+
     httpResponse.setHeader("Location", String.format("%s/customers/%s",
                            request.getContextPath(), customer1.getId()));
 
-    return customer1.toString().toLowerCase().replace("script","");
+// Helper method to validate phone number format - prevents injection attacks
+  private boolean isValidPhoneNumber(String phoneNumber) {
+    if (phoneNumber == null || phoneNumber.trim().isEmpty()) {
+        return false;
+    }
+    // Allow digits, hyphens, parentheses, spaces, and plus sign
+    return phoneNumber.matches("^[\\d\\s\\-()\\+]{7,20}$");
   }
 
-	/**
-	 * Debug test for saving and reading a customer
 	 *
 	 * @param firstName String
 	 * @param httpResponse
@@ -345,40 +383,43 @@ public class CustomerController {
 
 		Customer createdcustomer = null;
 		createdcustomer = customerRepository.save(customer);
-		httpResponse.setStatus(HttpStatus.CREATED.value());
-		httpResponse.setHeader("Location",
-				String.format("%s/customers/%s", request.getContextPath(), customer.getId()));
+// DTO class for structured JSON response - eliminates HTML interpretation risks
+  private static class DebugResponse {
+    private String customerId;
+    private int statusCode;
+    private String message;
 
-		return createdcustomer;
-	}
+    public DebugResponse(String customerId, int statusCode, String message) {
+        this.customerId = customerId;
+        this.statusCode = statusCode;
+        this.message = message;
+    }
 
-	/**
-	 * Update customer with given customer id.
-	 *
-	 * @param customer
-	 *            the customer
-	 */
-	@RequestMapping(value = { "/customers/{customerId}" }, method = { RequestMethod.PUT })
-	public void updateCustomer(@RequestBody Customer customer, @PathVariable("customerId") Long customerId,
-			HttpServletResponse httpResponse) {
+    public String getCustomerId() {
+        return customerId;
+    }
 
-		if (!customerRepository.exists(customerId)) {
-			httpResponse.setStatus(HttpStatus.NOT_FOUND.value());
-		} else {
-			customerRepository.save(customer);
-			httpResponse.setStatus(HttpStatus.NO_CONTENT.value());
-		}
-	}
+    public void setCustomerId(String customerId) {
+        this.customerId = customerId;
+    }
 
-	/**
-	 * Deletes the customer with given customer id if it exists and returns
-	 * HTTP204.
-	 *
-	 * @param customerId
-	 *            the customer id
-	 */
-	@RequestMapping(value = "/customers/{customerId}", method = RequestMethod.DELETE)
-	public void removeCustomer(@PathVariable("customerId") Long customerId, HttpServletResponse httpResponse) {
+    public int getStatusCode() {
+        return statusCode;
+    }
+
+    public void setStatusCode(int statusCode) {
+        this.statusCode = statusCode;
+    }
+
+    public String getMessage() {
+        return message;
+    }
+
+    public void setMessage(String message) {
+        this.message = message;
+    }
+  }
+
 
 		if (customerRepository.exists(customerId)) {
 			customerRepository.delete(customerId);
