@@ -329,34 +329,73 @@ public class CustomerController {
    * @return String
    * @throws IOException
    */
-  @RequestMapping(value = "/debug", method = RequestMethod.GET)
-  public String debug(@RequestParam String customerId,
-					  @RequestParam int clientId,
-					  @RequestParam String firstName,
-                      @RequestParam String lastName,
-                      @RequestParam String dateOfBirth,
-                      @RequestParam String ssn,
-					  @RequestParam String socialSecurityNum,
-                      @RequestParam String tin,
-                      @RequestParam String phoneNumber,
-                      HttpServletResponse httpResponse,
-                     WebRequest request) throws IOException{
+@RequestMapping(value = "/debug", method = RequestMethod.GET)
+public String debug(@RequestParam String customerId,
+                    @RequestParam int clientId,
+                    @RequestParam String firstName,
+                    @RequestParam String lastName,
+                    @RequestParam String dateOfBirth,
+                    @RequestParam String ssn,
+                    @RequestParam String socialSecurityNum,
+                    @RequestParam String tin,
+                    @RequestParam String phoneNumber,
+                    HttpServletResponse httpResponse,
+                    WebRequest request) throws IOException{
+
+    // FIX: Added input validation to reject malicious patterns while preserving data integrity
+    if (!customerId.matches("^[a-zA-Z0-9-]{1,50}$")) {
+        throw new IllegalArgumentException("Invalid customer ID format");
+    }
+    if (!firstName.matches("^[\\p{L}\\s'-.]{1,100}$") || !lastName.matches("^[\\p{L}\\s'-.]{1,100}$")) {
+        throw new IllegalArgumentException("Invalid name format");
+    }
+    if (!ssn.matches("^\\d{3}-\\d{2}-\\d{4}$")) {
+        throw new IllegalArgumentException("Invalid SSN format");
+    }
+    if (!socialSecurityNum.matches("^\\d{3}-\\d{2}-\\d{4}$")) {
+        throw new IllegalArgumentException("Invalid social security number format");
+    }
+    if (!tin.matches("^\\d{2}-\\d{7}$")) {
+        throw new IllegalArgumentException("Invalid TIN format");
+    }
+    if (!phoneNumber.matches("^\\+?[0-9\\s().-]{10,20}$")) {
+        throw new IllegalArgumentException("Invalid phone number format");
+    }
 
     // empty for now, because we debug
     Set<Account> accounts1 = new HashSet<Account>();
     //dateofbirth example -> "1982-01-10"
-    Customer customer1 = new Customer(customerId, clientId, firstName, lastName, DateTime.parse(dateOfBirth).toDate(),
-                                      ssn, socialSecurityNum, tin, phoneNumber, new Address("Debug str",
-                                      "", "Debug city", "CA", "12345"),
+    // FIX: Migrated from Joda-Time DateTime to Java 8+ LocalDate (java.time API)
+    LocalDate birthDate = LocalDate.parse(dateOfBirth);
+    java.util.Date birthDateAsDate = java.sql.Date.valueOf(birthDate);
+    
+    // FIX: Store original data without sanitization to maintain data integrity
+    Customer customer1 = new Customer(customerId, clientId, firstName, lastName, 
+                                      birthDateAsDate,
+                                      ssn, socialSecurityNum, tin, phoneNumber, 
+                                      new Address("Debug str", "", "Debug city", "CA", "12345"),
                                       accounts1);
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
     httpResponse.setHeader("Location", String.format("%s/customers/%s",
                            request.getContextPath(), customer1.getId()));
+    
+    // FIX: Add Content Security Policy header to prevent inline script execution
+    httpResponse.setHeader("Content-Security-Policy", 
+        "default-src 'self'; script-src 'self'; object-src 'none';");
+    
+    // FIX: Set proper content type for plain text response
+    httpResponse.setContentType("text/plain; charset=UTF-8");
+    
+    // FIX: Apply context-aware output encoding for text/plain response to prevent CRLF injection
+    String safeOutput = customer1.toString()
+        .replace("\r", "")
+        .replace("\n", " ")
+        .replace("\0", "");
+    return safeOutput;
+}
 
-    return customer1.toString().toLowerCase().replace("script","");
-  }
 
 	/**
 	 * Debug test for saving and reading a customer
