@@ -277,23 +277,54 @@ public class CustomerController {
    * @return String
    * @throws IOException
    */
+@Profile("dev")
   @RequestMapping(value = "/debug", method = RequestMethod.GET)
-  public String debug(@RequestParam String customerId,
-					  @RequestParam int clientId,
-					  @RequestParam String firstName,
-                      @RequestParam String lastName,
-                      @RequestParam String dateOfBirth,
-                      @RequestParam String ssn,
-					  @RequestParam String socialSecurityNum,
-                      @RequestParam String tin,
-                      @RequestParam String phoneNumber,
-                      HttpServletResponse httpResponse,
-                     WebRequest request) throws IOException{
+  @ResponseBody
+  public ResponseEntity<CustomerDebugResponse> debug(
+      @RequestParam 
+      @Pattern(regexp = "^[a-zA-Z0-9\\s-]{1,50}$", message = "Invalid customer ID format")
+      String customerId,
+      @RequestParam int clientId,
+      @RequestParam 
+      @Pattern(regexp = "^[a-zA-Z\\s]{1,50}$", message = "Invalid first name format")
+      String firstName,
+      @RequestParam 
+      @Pattern(regexp = "^[a-zA-Z\\s]{1,50}$", message = "Invalid last name format")
+      String lastName,
+      @RequestParam 
+      @Pattern(regexp = "^\\d{4}-\\d{2}-\\d{2}$", message = "Invalid date format")
+      String dateOfBirth,
+      @RequestParam 
+      @Pattern(regexp = "^\\d{3}-\\d{2}-\\d{4}$", message = "Invalid SSN format")
+      String ssn,
+      @RequestParam 
+      @Pattern(regexp = "^\\d{3}-\\d{2}-\\d{4}$", message = "Invalid social security number format")
+      String socialSecurityNum,
+      @RequestParam 
+      @Pattern(regexp = "^\\d{2}-\\d{7}$", message = "Invalid TIN format")
+      String tin,
+      @RequestParam 
+      @Pattern(regexp = "^[0-9-]{7,15}$", message = "Invalid phone number format")
+      String phoneNumber,
+      HttpServletResponse httpResponse,
+      WebRequest request) throws IOException {
 
-    // empty for now, because we debug
+    String acceptHeader = request.getHeader("Accept");
+    if (acceptHeader != null && acceptHeader.contains("text/html")) {
+      return ResponseEntity.status(HttpStatus.NOT_ACCEPTABLE)
+          .body(new CustomerDebugResponse("error", "HTML responses not supported", null, null, null, null));
+    }
+
+    httpResponse.setHeader("Content-Security-Policy", 
+        "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'");
+    
+    httpResponse.setHeader("X-Content-Type-Options", "nosniff");
+    
+    httpResponse.setHeader("X-Frame-Options", "DENY");
+
     Set<Account> accounts1 = new HashSet<Account>();
-    //dateofbirth example -> "1982-01-10"
-    Customer customer1 = new Customer(customerId, clientId, firstName, lastName, DateTime.parse(dateOfBirth).toDate(),
+    LocalDate birthDate = LocalDate.parse(dateOfBirth, DateTimeFormatter.ISO_LOCAL_DATE);
+    Customer customer1 = new Customer(customerId, clientId, firstName, lastName, java.sql.Date.valueOf(birthDate),
                                       ssn, socialSecurityNum, tin, phoneNumber, new Address("Debug str",
                                       "", "Debug city", "CA", "12345"),
                                       accounts1);
@@ -303,81 +334,58 @@ public class CustomerController {
     httpResponse.setHeader("Location", String.format("%s/customers/%s",
                            request.getContextPath(), customer1.getId()));
 
-    return customer1.toString().toLowerCase().replace("script","");
+    CustomerDebugResponse response = new CustomerDebugResponse(
+        "created",
+        "Customer created successfully",
+        customer1.getId(),
+        customer1.getCustomerId(),
+        customer1.getFirstName(),
+        customer1.getLastName()
+    );
+    
+private static class CustomerDebugResponse {
+    private String status;
+    private String message;
+    private String id;
+    private String customerId;
+    private String firstName;
+    private String lastName;
+
+    public CustomerDebugResponse(String status, String message, String id, String customerId, 
+                                 String firstName, String lastName) {
+      this.status = status;
+      this.message = message;
+      this.id = id;
+      this.customerId = customerId;
+      this.firstName = firstName;
+      this.lastName = lastName;
+    }
+
+    public String getStatus() {
+      return status;
+    }
+
+    public String getMessage() {
+      return message;
+    }
+
+    public String getId() {
+      return id;
+    }
+
+    public String getCustomerId() {
+      return customerId;
+    }
+
+    public String getFirstName() {
+      return firstName;
+    }
+
+    public String getLastName() {
+      return lastName;
+    }
   }
 
-	/**
-	 * Debug test for saving and reading a customer
-	 *
-	 * @param firstName String
-	 * @param httpResponse
-	 * @param request
-	 * @return void
-	 * @throws IOException
-	 */
-	@RequestMapping(value = "/debugEscaped", method = RequestMethod.GET)
-	public void debugEscaped(@RequestParam String firstName, HttpServletResponse httpResponse,
-					  WebRequest request) throws IOException{
-		String escaped = HtmlUtils.htmlEscape(firstName);
-		System.out.println(escaped);
-		httpResponse.getOutputStream().println(escaped);
-	}
-	/**
-	 * Gets all customers.
-	 *
-	 * @return the customers
-	 */
-	@RequestMapping(value = "/customers", method = RequestMethod.GET)
-	public List<Customer> getCustomers() {
-		return (List<Customer>) customerRepository.findAll();
-	}
-
-	/**
-	 * Create a new customer and return in response with HTTP 201
-	 *
-	 * @param the
-	 *            customer
-	 * @return created customer
-	 */
-	@RequestMapping(value = { "/customers" }, method = { RequestMethod.POST })
-	public Customer createCustomer(@RequestParam Customer customer, HttpServletResponse httpResponse,
-								   WebRequest request) {
-
-		Customer createdcustomer = null;
-		createdcustomer = customerRepository.save(customer);
-		httpResponse.setStatus(HttpStatus.CREATED.value());
-		httpResponse.setHeader("Location",
-				String.format("%s/customers/%s", request.getContextPath(), customer.getId()));
-
-		return createdcustomer;
-	}
-
-	/**
-	 * Update customer with given customer id.
-	 *
-	 * @param customer
-	 *            the customer
-	 */
-	@RequestMapping(value = { "/customers/{customerId}" }, method = { RequestMethod.PUT })
-	public void updateCustomer(@RequestBody Customer customer, @PathVariable("customerId") Long customerId,
-			HttpServletResponse httpResponse) {
-
-		if (!customerRepository.exists(customerId)) {
-			httpResponse.setStatus(HttpStatus.NOT_FOUND.value());
-		} else {
-			customerRepository.save(customer);
-			httpResponse.setStatus(HttpStatus.NO_CONTENT.value());
-		}
-	}
-
-	/**
-	 * Deletes the customer with given customer id if it exists and returns
-	 * HTTP204.
-	 *
-	 * @param customerId
-	 *            the customer id
-	 */
-	@RequestMapping(value = "/customers/{customerId}", method = RequestMethod.DELETE)
 	public void removeCustomer(@PathVariable("customerId") Long customerId, HttpServletResponse httpResponse) {
 
 		if (customerRepository.exists(customerId)) {
