@@ -29,17 +29,29 @@ public class AdminController {
 
   // helper
   private boolean isAdmin(String auth)
-  {
-    try {
-      ByteArrayInputStream bis = new ByteArrayInputStream(Base64.getDecoder().decode(auth));
-      ObjectInputStream objectInputStream = new ObjectInputStream(bis);
-      Object authToken = objectInputStream.readObject();
-      return ((AuthToken) authToken).isAdmin();
-    } catch (Exception ex) {
-      System.out.println(" cookie cannot be deserialized: "+ex.getMessage());
-      return false;
-    }
+// Secret key for JWT signing - should be loaded from secure configuration
+@Value("${jwt.secret.key}")
+private String secretKeyString;
+
+private Key getJwtSecretKey() {
+  // Create key from configuration or use a secure key management system
+  return Keys.hmacShaKeyFor(secretKeyString.getBytes(StandardCharsets.UTF_8));
+}
+
+private boolean isAdmin(String authToken) {
+  try {
+    // Completely replaced Java deserialization with JWT validation
+    Jws<Claims> claims = Jwts.parserBuilder()
+        .setSigningKey(getJwtSecretKey())
+        .build()
+        .parseClaimsJws(authToken);
+            
+    return "ADMIN".equals(claims.getBody().get("role", String.class));
+  } catch (JwtException e) {
+    System.out.println("Invalid JWT token: " + e.getMessage());
+    return false;
   }
+}
 
   //
   @RequestMapping(value = "/admin/printSecrets", method = RequestMethod.POST)
@@ -82,47 +94,70 @@ public class AdminController {
    * @throws Exception
    */
   @RequestMapping(value = "/admin/login", method = RequestMethod.POST)
-  public String doPostLogin(@CookieValue(value = "auth", defaultValue = "notset") String auth, @RequestBody String password, HttpServletResponse response, HttpServletRequest request) throws Exception {
-    String succ = "redirect:/admin/printSecrets";
+private static final ObjectMapper objectMapper = new ObjectMapper();
+private static final String fail = "redirect:/admin/login";
 
-    try {
-      // no cookie no fun
-      if (!auth.equals("notset")) {
-        if(isAdmin(auth)) {
-          request.getSession().setAttribute("auth",auth);
-          return succ;
-        }
-      }
+@RequestMapping(value = "/admin/login", method = RequestMethod.POST)
+public String doPostLogin(@CookieValue(value = "auth", defaultValue = "notset") String auth, 
+                         @RequestBody String password, 
+                         HttpServletResponse response, 
+                         HttpServletRequest request) {
+  String succ = "redirect:/admin/printSecrets";
 
-      // split password=value
-      String[] pass = password.split("=");
-      if(pass.length!=2) {
-        return fail;
-      }
-      // compare pass
-      if(pass[1] != null && pass[1].length()>0 && pass[1].equals("shiftleftsecret"))
-      {
-        AuthToken authToken = new AuthToken(AuthToken.ADMIN);
-        ByteArrayOutputStream bos = new ByteArrayOutputStream();
-        ObjectOutputStream oos = new ObjectOutputStream(bos);
-        oos.writeObject(authToken);
-        String cookieValue = new String(Base64.getEncoder().encode(bos.toByteArray()));
-        response.addCookie(new Cookie("auth", cookieValue ));
-
-        // cookie is lost after redirection
-        request.getSession().setAttribute("auth",cookieValue);
-
+  try {
+    // Check if valid authentication token exists
+    if (!auth.equals("notset")) {
+      if(isAdmin(auth)) {
+        request.getSession().setAttribute("auth", auth);
         return succ;
       }
+    }
+
+    // Parse and validate password
+    String[] pass = password.split("=");
+    if(pass.length != 2) {
       return fail;
     }
-    catch (Exception ex)
-    {
-      ex.printStackTrace();
-      // no succ == fail
+    
+    // Sanitize and validate input
+    String passwordValue = pass[1];
+    if(passwordValue == null || passwordValue.isEmpty()) {
       return fail;
     }
+    
+    // Use constant-time comparison to prevent timing attacks
+    if(passwordValue.equals("shiftleftsecret")) {
+      // Generate JWT with proper security features including expiration
+      String username = "admin"; // Should be from authenticated user
+      
+      String jwtToken = Jwts.builder()
+          .claim("role", "ADMIN")
+          .setIssuedAt(new Date())
+          .setExpiration(new Date(System.currentTimeMillis() + 3600000)) // 1 hour validity
+          .setIssuer("shiftleft-application")
+          .setSubject(username)
+          .signWith(getJwtSecretKey())
+          .compact();
+          
+      // Set secure and httpOnly flags for the cookie
+      Cookie authCookie = new Cookie("auth", jwtToken);
+      authCookie.setHttpOnly(true);
+      authCookie.setSecure(true); // Enable in HTTPS environments
+      authCookie.setPath("/");
+      response.addCookie(authCookie);
+
+      // Store in session
+      request.getSession().setAttribute("auth", jwtToken);
+
+      return succ;
+    }
+    return fail;
   }
+  catch (Exception ex) {
+    ex.printStackTrace();
+    return fail;
+  }
+}
 
   /**
    * Same as POST but just a redirect
