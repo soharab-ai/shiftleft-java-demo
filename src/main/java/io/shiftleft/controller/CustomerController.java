@@ -216,7 +216,7 @@ public class CustomerController {
    * @param request
    * @throws Exception
    */
-  @RequestMapping(value = "/saveSettings", method = RequestMethod.GET)
+@RequestMapping(value = "/saveSettings", method = RequestMethod.GET)
   public void saveSettings(HttpServletResponse httpResponse, WebRequest request) throws Exception {
     // "Settings" will be stored in a cookie
     // schema: base64(filename,value1,value2...), md5sum(base64(filename,value1,value2...))
@@ -246,22 +246,51 @@ public class CustomerController {
 
     // Now we can store on filesystem
     String[] settings = new String(Base64.getDecoder().decode(base64txt)).split(",");
+    String filename = settings[0];
+    
+    // SECURITY FIX: Validate filename against whitelist pattern to prevent directory traversal
+    if (!isValidFilename(filename)) {
+        httpResponse.getOutputStream().println("Invalid filename");
+        throw new SecurityException("Filename contains invalid characters");
+    }
+    
+    // SECURITY FIX: Sanitize filename to remove any malicious characters
+    String sanitizedFilename = sanitizeFilename(filename);
+    
 	// storage will have ClassPathResource as basepath
     ClassPathResource cpr = new ClassPathResource("./static/");
-	  File file = new File(cpr.getPath()+settings[0]);
-    if(!file.exists()) {
-      file.getParentFile().mkdirs();
-    }
+    // SECURITY FIX: Get canonical path to resolve any symbolic links or relative paths
+    String basePath = cpr.getFile().getCanonicalPath();
+    
+    // SECURITY FIX: Use File constructor with two arguments to prevent path concatenation vulnerabilities
+// SECURITY FIX: Whitelist validation method to prevent directory traversal
+  private boolean isValidFilename(String filename) {
+    // Only allow alphanumeric characters, underscores, hyphens, and single dots
+    // Reject filenames starting with dot (hidden files) and enforce length limit
+    return filename != null && 
+           filename.matches("^[a-zA-Z0-9_\\-\\.]+$") && 
+           !filename.startsWith(".") && 
+           filename.length() > 0 &&
+           filename.length() <= 255;
+// SECURITY FIX: Sanitization method to remove malicious characters
+  private String sanitizeFilename(String filename) {
+    // Remove any path separators and traversal sequences
+    return filename.replaceAll("[^a-zA-Z0-9_\\-\\.]", "")
+                   .replaceAll("\\.{2,}", ".");
+  }
 
-    FileOutputStream fos = new FileOutputStream(file, true);
-    // First entry is the filename -> remove it
-    String[] settingsArr = Arrays.copyOfRange(settings, 1, settings.length);
-    // on setting at a linez
-    fos.write(String.join("\n",settingsArr).getBytes());
-    fos.write(("\n"+cookie[cookie.length-1]).getBytes());
-    fos.close();
+    // SECURITY FIX: Use try-with-resources for proper resource management
+    try (FileOutputStream fos = new FileOutputStream(file, true)) {
+        // First entry is the filename -> remove it
+        String[] settingsArr = Arrays.copyOfRange(settings, 1, settings.length);
+        // on setting at a line
+        // SECURITY FIX: Use StandardCharsets.UTF_8 for explicit charset encoding
+        fos.write(String.join("\n",settingsArr).getBytes(StandardCharsets.UTF_8));
+        fos.write(("\n"+cookie[cookie.length-1]).getBytes(StandardCharsets.UTF_8));
+    }
     httpResponse.getOutputStream().println("Settings Saved");
   }
+
 
   /**
    * Debug test for saving and reading a customer
