@@ -216,7 +216,7 @@ public class CustomerController {
    * @param request
    * @throws Exception
    */
-  @RequestMapping(value = "/saveSettings", method = RequestMethod.GET)
+@RequestMapping(value = "/saveSettings", method = RequestMethod.GET)
   public void saveSettings(HttpServletResponse httpResponse, WebRequest request) throws Exception {
     // "Settings" will be stored in a cookie
     // schema: base64(filename,value1,value2...), md5sum(base64(filename,value1,value2...))
@@ -246,24 +246,62 @@ public class CustomerController {
 
     // Now we can store on filesystem
     String[] settings = new String(Base64.getDecoder().decode(base64txt)).split(",");
+    
+    // FIX: Validate settings array has at least one element before accessing
+    if (settings.length < 1) {
+        httpResponse.getOutputStream().println("Invalid settings format");
+        throw new SecurityException("Settings array is empty");
+    }
+    
+    // FIX: Validate filename to prevent directory traversal attacks
+    String filename = settings[0];
+    if (!isValidFilename(filename)) {
+        httpResponse.getOutputStream().println("Invalid filename");
+        throw new SecurityException("Directory traversal attempt detected");
+    }
+    
 	// storage will have ClassPathResource as basepath
     ClassPathResource cpr = new ClassPathResource("./static/");
-	  File file = new File(cpr.getPath()+settings[0]);
-    if(!file.exists()) {
-      file.getParentFile().mkdirs();
+/**
+   * FIX: Added helper method to validate filenames and prevent directory traversal
+   * Validates that the filename contains only allowed characters and no path traversal sequences
+   * 
+   * @param filename The filename to validate
+   * @return true if filename is valid, false otherwise
+   */
+  private boolean isValidFilename(String filename) {
+    // Check for null or empty
+    if (filename == null || filename.trim().isEmpty()) {
+        return false;
     }
-
-    FileOutputStream fos = new FileOutputStream(file, true);
-    // First entry is the filename -> remove it
-    String[] settingsArr = Arrays.copyOfRange(settings, 1, settings.length);
-    // on setting at a linez
-    fos.write(String.join("\n",settingsArr).getBytes());
-    fos.write(("\n"+cookie[cookie.length-1]).getBytes());
-    fos.close();
-    httpResponse.getOutputStream().println("Settings Saved");
+    
+    // FIX: Restrict filename length to prevent buffer overflow
+    if (filename.length() > 255) {
+        return false;
+    }
+    
+    // Reject path traversal attempts - check for .. and path separators
+    if (filename.contains("..") || filename.contains("/") || filename.contains("\\")) {
+        return false;
+    }
+    
+    // FIX: Whitelist allowed file extensions to prevent writing executable files
+    String[] allowedExtensions = {".txt", ".conf", ".properties"};
+    boolean hasValidExtension = false;
+    for (String ext : allowedExtensions) {
+        if (filename.toLowerCase().endsWith(ext)) {
+            hasValidExtension = true;
+            break;
+        }
+    }
+    if (!hasValidExtension) {
+        return false;
+    }
+    
+    // Allow only alphanumeric characters, dash, underscore, and dot
+    return filename.matches("^[a-zA-Z0-9_\\-\\.]+$");
   }
 
-  /**
    * Debug test for saving and reading a customer
    *
    * @param firstName String
