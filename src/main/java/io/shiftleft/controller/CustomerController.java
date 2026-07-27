@@ -277,52 +277,66 @@ public class CustomerController {
    * @return String
    * @throws IOException
    */
-  @RequestMapping(value = "/debug", method = RequestMethod.GET)
-  public String debug(@RequestParam String customerId,
-					  @RequestParam int clientId,
-					  @RequestParam String firstName,
-                      @RequestParam String lastName,
-                      @RequestParam String dateOfBirth,
-                      @RequestParam String ssn,
-					  @RequestParam String socialSecurityNum,
-                      @RequestParam String tin,
-                      @RequestParam String phoneNumber,
-                      HttpServletResponse httpResponse,
-                     WebRequest request) throws IOException{
+@RequestMapping(value = "/debug", method = RequestMethod.GET)
+public ResponseEntity<String> debug(
+    @Pattern(regexp = "^[a-zA-Z0-9\\-_]+$", message = "Invalid customer ID") 
+    @Size(max = 100, message = "Customer ID too long") 
+    @RequestParam String customerId,
+    @RequestParam int clientId,
+    @Pattern(regexp = "^[a-zA-Z\\s\\-']+$", message = "Invalid first name") 
+    @Size(max = 100, message = "First name too long") 
+    @RequestParam String firstName,
+    @Pattern(regexp = "^[a-zA-Z\\s\\-']+$", message = "Invalid last name") 
+    @Size(max = 100, message = "Last name too long") 
+    @RequestParam String lastName,
+    @Pattern(regexp = "^\\d{4}-\\d{2}-\\d{2}$", message = "Invalid date format") 
+    @RequestParam String dateOfBirth,
+    @Pattern(regexp = "^[0-9\\-]+$", message = "Invalid SSN") 
+    @Size(max = 20, message = "SSN too long") 
+    @RequestParam String ssn,
+    @Pattern(regexp = "^[0-9\\-]+$", message = "Invalid social security number") 
+    @Size(max = 20, message = "Social security number too long") 
+    @RequestParam String socialSecurityNum,
+    @Pattern(regexp = "^[0-9A-Z\\-]+$", message = "Invalid TIN") 
+    @Size(max = 20, message = "TIN too long") 
+    @RequestParam String tin,
+    @Pattern(regexp = "^[0-9\\+\\-\\(\\)\\s]+$", message = "Invalid phone number") 
+    @Size(max = 20, message = "Phone number too long") 
+    @RequestParam String phoneNumber,
+    HttpServletResponse httpResponse,
+    WebRequest request) throws IOException {
 
-    // empty for now, because we debug
-    Set<Account> accounts1 = new HashSet<Account>();
-    //dateofbirth example -> "1982-01-10"
-    Customer customer1 = new Customer(customerId, clientId, firstName, lastName, DateTime.parse(dateOfBirth).toDate(),
-                                      ssn, socialSecurityNum, tin, phoneNumber, new Address("Debug str",
-                                      "", "Debug city", "CA", "12345"),
-                                      accounts1);
+  Set<Account> accounts1 = new HashSet<Account>();
+  
+  LocalDate parsedDate = LocalDate.parse(dateOfBirth, DateTimeFormatter.ISO_LOCAL_DATE);
+  java.util.Date birthDate = java.sql.Date.valueOf(parsedDate);
+  
+  Customer customer1 = new Customer(customerId, clientId, firstName, lastName, birthDate,
+                                    ssn, socialSecurityNum, tin, phoneNumber, new Address("Debug str",
+                                    "", "Debug city", "CA", "12345"),
+                                    accounts1);
 
-    customerRepository.save(customer1);
-    httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId()));
+  customerRepository.save(customer1);
+  
+  String safeOutput = String.format(
+      "Customer created: id=%s, customerId=%s, clientId=%d, name=%s %s, dateOfBirth=%s, phoneNumber=%s, address=%s",
+      HtmlUtils.htmlEscape(customer1.getId()),
+      HtmlUtils.htmlEscape(customer1.getCustomerId()),
+      customer1.getClientId(),
+      HtmlUtils.htmlEscape(customer1.getFirstName()),
+      HtmlUtils.htmlEscape(customer1.getLastName()),
+      HtmlUtils.htmlEscape(customer1.getDateOfBirth() != null ? customer1.getDateOfBirth().toString() : ""),
+      HtmlUtils.htmlEscape(customer1.getPhoneNumber()),
+      HtmlUtils.htmlEscape(customer1.getAddress() != null ? customer1.getAddress().toString() : "")
+  );
+  
+  return ResponseEntity
+      .status(HttpStatus.CREATED)
+      .contentType(MediaType.TEXT_PLAIN)
+      .header("Location", String.format("%s/customers/%s", request.getContextPath(), customer1.getId()))
+      .body(safeOutput);
+}
 
-    return customer1.toString().toLowerCase().replace("script","");
-  }
-
-	/**
-	 * Debug test for saving and reading a customer
-	 *
-	 * @param firstName String
-	 * @param httpResponse
-	 * @param request
-	 * @return void
-	 * @throws IOException
-	 */
-	@RequestMapping(value = "/debugEscaped", method = RequestMethod.GET)
-	public void debugEscaped(@RequestParam String firstName, HttpServletResponse httpResponse,
-					  WebRequest request) throws IOException{
-		String escaped = HtmlUtils.htmlEscape(firstName);
-		System.out.println(escaped);
-		httpResponse.getOutputStream().println(escaped);
-	}
-	/**
 	 * Gets all customers.
 	 *
 	 * @return the customers
