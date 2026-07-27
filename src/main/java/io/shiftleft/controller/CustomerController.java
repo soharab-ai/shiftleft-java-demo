@@ -277,56 +277,42 @@ public class CustomerController {
    * @return String
    * @throws IOException
    */
-  @RequestMapping(value = "/debug", method = RequestMethod.GET)
-  public String debug(@RequestParam String customerId,
-					  @RequestParam int clientId,
-					  @RequestParam String firstName,
-                      @RequestParam String lastName,
-                      @RequestParam String dateOfBirth,
-                      @RequestParam String ssn,
-					  @RequestParam String socialSecurityNum,
-                      @RequestParam String tin,
-                      @RequestParam String phoneNumber,
-                      HttpServletResponse httpResponse,
-                     WebRequest request) throws IOException{
+@RequestMapping(value = "/debug", method = RequestMethod.GET)
+public void debug(@RequestParam String customerId,
+                  @RequestParam int clientId,
+                  @RequestParam String firstName,
+                  @RequestParam String lastName,
+                  @RequestParam String dateOfBirth,
+                  @RequestParam String ssn,
+                  @RequestParam String socialSecurityNum,
+                  @RequestParam String tin,
+                  @RequestParam String phoneNumber,
+                  HttpServletResponse httpResponse,
+                  WebRequest request) throws IOException{
 
-    // empty for now, because we debug
-    Set<Account> accounts1 = new HashSet<Account>();
-    //dateofbirth example -> "1982-01-10"
-    Customer customer1 = new Customer(customerId, clientId, firstName, lastName, DateTime.parse(dateOfBirth).toDate(),
-                                      ssn, socialSecurityNum, tin, phoneNumber, new Address("Debug str",
-                                      "", "Debug city", "CA", "12345"),
-                                      accounts1);
+  validateCustomerInput(customerId, firstName, lastName, ssn, socialSecurityNum, tin, phoneNumber);
+  
+  Set<Account> accounts1 = new HashSet<Account>();
+  Customer customer1 = new Customer(customerId, clientId, firstName, lastName, DateTime.parse(dateOfBirth).toDate(),
+                                    ssn, socialSecurityNum, tin, phoneNumber, new Address("Debug str",
+                                    "", "Debug city", "CA", "12345"),
+                                    accounts1);
 
-    customerRepository.save(customer1);
-    httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId()));
+  customerRepository.save(customer1);
+  httpResponse.setStatus(HttpStatus.CREATED.value());
+  httpResponse.setHeader("Location", String.format("%s/customers/%s",
+                         request.getContextPath(), customer1.getId()));
 
-    return customer1.toString().toLowerCase().replace("script","");
-  }
+  httpResponse.setHeader("Content-Security-Policy", "default-src 'self'");
+  httpResponse.setHeader("X-Content-Type-Options", "nosniff");
+  httpResponse.setHeader("X-XSS-Protection", "1; mode=block");
+  
+  httpResponse.setContentType("application/json; charset=UTF-8");
+  
+  httpResponse.getWriter().write("{\"customerId\":\"" + customer1.getId() + "\",\"status\":\"created\"}");
+  httpResponse.getWriter().flush();
+}
 
-	/**
-	 * Debug test for saving and reading a customer
-	 *
-	 * @param firstName String
-	 * @param httpResponse
-	 * @param request
-	 * @return void
-	 * @throws IOException
-	 */
-	@RequestMapping(value = "/debugEscaped", method = RequestMethod.GET)
-	public void debugEscaped(@RequestParam String firstName, HttpServletResponse httpResponse,
-					  WebRequest request) throws IOException{
-		String escaped = HtmlUtils.htmlEscape(firstName);
-		System.out.println(escaped);
-		httpResponse.getOutputStream().println(escaped);
-	}
-	/**
-	 * Gets all customers.
-	 *
-	 * @return the customers
-	 */
 	@RequestMapping(value = "/customers", method = RequestMethod.GET)
 	public List<Customer> getCustomers() {
 		return (List<Customer>) customerRepository.findAll();
@@ -342,49 +328,44 @@ public class CustomerController {
 	@RequestMapping(value = { "/customers" }, method = { RequestMethod.POST })
 	public Customer createCustomer(@RequestParam Customer customer, HttpServletResponse httpResponse,
 								   WebRequest request) {
-
-		Customer createdcustomer = null;
-		createdcustomer = customerRepository.save(customer);
-		httpResponse.setStatus(HttpStatus.CREATED.value());
-		httpResponse.setHeader("Location",
-				String.format("%s/customers/%s", request.getContextPath(), customer.getId()));
-
-		return createdcustomer;
-	}
-
-	/**
-	 * Update customer with given customer id.
-	 *
-	 * @param customer
-	 *            the customer
-	 */
-	@RequestMapping(value = { "/customers/{customerId}" }, method = { RequestMethod.PUT })
-	public void updateCustomer(@RequestBody Customer customer, @PathVariable("customerId") Long customerId,
-			HttpServletResponse httpResponse) {
-
-		if (!customerRepository.exists(customerId)) {
-			httpResponse.setStatus(HttpStatus.NOT_FOUND.value());
-		} else {
-			customerRepository.save(customer);
-			httpResponse.setStatus(HttpStatus.NO_CONTENT.value());
-		}
-	}
-
-	/**
-	 * Deletes the customer with given customer id if it exists and returns
-	 * HTTP204.
-	 *
-	 * @param customerId
-	 *            the customer id
-	 */
-	@RequestMapping(value = "/customers/{customerId}", method = RequestMethod.DELETE)
-	public void removeCustomer(@PathVariable("customerId") Long customerId, HttpServletResponse httpResponse) {
-
-		if (customerRepository.exists(customerId)) {
-			customerRepository.delete(customerId);
-		}
-
-		httpResponse.setStatus(HttpStatus.NO_CONTENT.value());
-	}
+private void validateCustomerInput(String customerId, String firstName, String lastName, 
+                                    String ssn, String socialSecurityNum, String tin, 
+                                    String phoneNumber) {
+  Pattern namePattern = Pattern.compile("^[a-zA-Z\\s\\-']{1,50}$");
+  
+  Pattern customerIdPattern = Pattern.compile("^[a-zA-Z0-9\\-]{1,20}$");
+  
+  Pattern ssnPattern = Pattern.compile("^[0-9\\-]{9,11}$");
+  
+  Pattern phonePattern = Pattern.compile("^[0-9\\s\\-()]{7,15}$");
+  
+  if (!customerIdPattern.matcher(customerId).matches()) {
+    throw new IllegalArgumentException("Invalid customerId format");
+  }
+  
+  if (!namePattern.matcher(firstName).matches()) {
+    throw new IllegalArgumentException("Invalid firstName format");
+  }
+  
+  if (!namePattern.matcher(lastName).matches()) {
+    throw new IllegalArgumentException("Invalid lastName format");
+  }
+  
+  if (!ssnPattern.matcher(ssn).matches()) {
+    throw new IllegalArgumentException("Invalid ssn format");
+  }
+  
+  if (!ssnPattern.matcher(socialSecurityNum).matches()) {
+    throw new IllegalArgumentException("Invalid socialSecurityNum format");
+  }
+  
+  if (!ssnPattern.matcher(tin).matches()) {
+    throw new IllegalArgumentException("Invalid tin format");
+  }
+  
+  if (!phonePattern.matcher(phoneNumber).matches()) {
+    throw new IllegalArgumentException("Invalid phoneNumber format");
+  }
+}
 
 }
