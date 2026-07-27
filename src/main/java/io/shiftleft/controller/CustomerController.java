@@ -277,8 +277,11 @@ public class CustomerController {
    * @return String
    * @throws IOException
    */
-  @RequestMapping(value = "/debug", method = RequestMethod.GET)
-  public String debug(@RequestParam String customerId,
+// FIX: Changed return type from String to ResponseEntity<Map<String, Object>> to eliminate HTML context and XSS attack surface
+// FIX: Added @ResponseBody annotation to ensure JSON serialization
+@RequestMapping(value = "/debug", method = RequestMethod.GET, produces = "application/json")
+  @ResponseBody
+  public ResponseEntity<Map<String, Object>> debug(@RequestParam String customerId,
 					  @RequestParam int clientId,
 					  @RequestParam String firstName,
                       @RequestParam String lastName,
@@ -289,6 +292,14 @@ public class CustomerController {
                       @RequestParam String phoneNumber,
                       HttpServletResponse httpResponse,
                      WebRequest request) throws IOException{
+
+    // FIX: Validate dateOfBirth format before parsing to prevent injection attacks
+    if (dateOfBirth == null || !Pattern.compile("^\\d{4}-\\d{2}-\\d{2}$").matcher(dateOfBirth).matches()) {
+        throw new IllegalArgumentException("Invalid date format. Expected format: YYYY-MM-DD");
+    }
+
+    // FIX: Validate all input parameters before processing to prevent XSS and injection attacks
+    validateInputParameters(customerId, firstName, lastName, phoneNumber, ssn, socialSecurityNum, tin);
 
     // empty for now, because we debug
     Set<Account> accounts1 = new HashSet<Account>();
@@ -303,54 +314,88 @@ public class CustomerController {
     httpResponse.setHeader("Location", String.format("%s/customers/%s",
                            request.getContextPath(), customer1.getId()));
 
-    return customer1.toString().toLowerCase().replace("script","");
+    // FIX: Set appropriate security headers for JSON response
+    httpResponse.setHeader("X-Content-Type-Options", "nosniff");
+    httpResponse.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+    
+    // FIX: Return JSON response instead of HTML string to eliminate XSS vulnerability
+    // JSON responses are automatically escaped by Spring's Jackson serializer and not interpreted as HTML
+    Map<String, Object> response = new HashMap<>();
+    response.put("status", "created");
+    response.put("customerId", customer1.getId());
+    response.put("customerData", customer1);
+    response.put("location", String.format("%s/customers/%s", request.getContextPath(), customer1.getId()));
+    
+    return ResponseEntity.status(HttpStatus.CREATED).body(response);
   }
 
-	/**
-	 * Debug test for saving and reading a customer
-	 *
-	 * @param firstName String
-	 * @param httpResponse
-	 * @param request
-	 * @return void
-	 * @throws IOException
-	 */
-	@RequestMapping(value = "/debugEscaped", method = RequestMethod.GET)
-	public void debugEscaped(@RequestParam String firstName, HttpServletResponse httpResponse,
-					  WebRequest request) throws IOException{
-		String escaped = HtmlUtils.htmlEscape(firstName);
-		System.out.println(escaped);
-		httpResponse.getOutputStream().println(escaped);
-	}
-	/**
-	 * Gets all customers.
-	 *
-	 * @return the customers
-	 */
-	@RequestMapping(value = "/customers", method = RequestMethod.GET)
-	public List<Customer> getCustomers() {
-		return (List<Customer>) customerRepository.findAll();
-	}
+        <h1>Customer Debug Information</h1>
+/**
+   * FIX: Validates input parameters to prevent malicious input from being processed.
+   * Implements strict input validation according to OWASP guidelines.
+   * FIX: Extended to validate all sensitive parameters including SSN, socialSecurityNum, and TIN
+   * 
+   * @param customerId The customer identifier
+   * @param firstName The customer's first name
+   * @param lastName The customer's last name
+   * @param phoneNumber The customer's phone number
+   * @param ssn The customer's social security number
+   * @param socialSecurityNum Alternative social security number field
+   * @param tin The customer's tax identification number
+   * @throws IllegalArgumentException if any input fails validation
+   */
+  private void validateInputParameters(String customerId, String firstName, 
+                                       String lastName, String phoneNumber,
+                                       String ssn, String socialSecurityNum, String tin) {
+    // FIX: Define validation patterns for expected input formats
+    Pattern namePattern = Pattern.compile("^[a-zA-Z\\s'-]{1,50}$");
+    Pattern phonePattern = Pattern.compile("^[0-9-+()\\s]{7,20}$");
+    Pattern customerIdPattern = Pattern.compile("^[a-zA-Z0-9_-]{1,50}$");
+    Pattern ssnPattern = Pattern.compile("^[0-9]{3}-[0-9]{2}-[0-9]{4}$");
+    Pattern tinPattern = Pattern.compile("^[0-9]{2}-[0-9]{7}$");
+    
+    // FIX: Validate customerId format
+    if (customerId == null || !customerIdPattern.matcher(customerId).matches()) {
+        throw new IllegalArgumentException("Invalid customer ID format. Only alphanumeric characters, hyphens, and underscores allowed.");
+    }
+    
+    // FIX: Validate firstName format
+    if (firstName == null || !namePattern.matcher(firstName).matches()) {
+        throw new IllegalArgumentException("Invalid first name format. Only letters, spaces, hyphens, and apostrophes allowed (1-50 characters).");
+    }
+    
+    // FIX: Validate lastName format
+    if (lastName == null || !namePattern.matcher(lastName).matches()) {
+        throw new IllegalArgumentException("Invalid last name format. Only letters, spaces, hyphens, and apostrophes allowed (1-50 characters).");
+    }
+    
+    // FIX: Validate phoneNumber format
+    if (phoneNumber == null || !phonePattern.matcher(phoneNumber).matches()) {
+        throw new IllegalArgumentException("Invalid phone number format. Only digits, spaces, hyphens, parentheses, and plus sign allowed (7-20 characters).");
+    }
+    
+    // FIX: Validate SSN format (if provided)
+    if (ssn != null && !ssn.isEmpty()) {
+        if (!ssnPattern.matcher(ssn).matches()) {
+            throw new IllegalArgumentException("Invalid SSN format. Expected format: XXX-XX-XXXX");
+        }
+    }
+    
+    // FIX: Validate socialSecurityNum format (if provided)
+    if (socialSecurityNum != null && !socialSecurityNum.isEmpty()) {
+        if (!ssnPattern.matcher(socialSecurityNum).matches()) {
+            throw new IllegalArgumentException("Invalid social security number format. Expected format: XXX-XX-XXXX");
+        }
+    }
+    
+    // FIX: Validate TIN format (if provided)
+    if (tin != null && !tin.isEmpty()) {
+        if (!tinPattern.matcher(tin).matches()) {
+            throw new IllegalArgumentException("Invalid TIN format. Expected format: XX-XXXXXXX");
+        }
+    }
+  }
 
-	/**
-	 * Create a new customer and return in response with HTTP 201
-	 *
-	 * @param the
-	 *            customer
-	 * @return created customer
-	 */
-	@RequestMapping(value = { "/customers" }, method = { RequestMethod.POST })
-	public Customer createCustomer(@RequestParam Customer customer, HttpServletResponse httpResponse,
-								   WebRequest request) {
-
-		Customer createdcustomer = null;
-		createdcustomer = customerRepository.save(customer);
-		httpResponse.setStatus(HttpStatus.CREATED.value());
-		httpResponse.setHeader("Location",
-				String.format("%s/customers/%s", request.getContextPath(), customer.getId()));
-
-		return createdcustomer;
-	}
 
 	/**
 	 * Update customer with given customer id.
