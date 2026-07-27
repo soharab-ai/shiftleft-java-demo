@@ -278,37 +278,59 @@ public class CustomerController {
    * @throws IOException
    */
 @RequestMapping(value = "/debug", method = RequestMethod.GET)
-@ResponseBody
-public ResponseEntity<String> debug(
-    @RequestParam @NotBlank @Pattern(regexp = "^[a-zA-Z0-9_-]+$", message = "Customer ID must be alphanumeric") @Size(max = 50) String customerId,
-    @RequestParam int clientId,
-    @RequestParam @NotBlank @Pattern(regexp = "^[a-zA-Z\\s]+$", message = "First name must contain only letters") @Size(max = 50) String firstName,
-    @RequestParam @NotBlank @Pattern(regexp = "^[a-zA-Z\\s]+$", message = "Last name must contain only letters") @Size(max = 50) String lastName,
-    @RequestParam @NotBlank @Pattern(regexp = "^\\d{4}-\\d{2}-\\d{2}$", message = "Date must be in format YYYY-MM-DD") String dateOfBirth,
-    @RequestParam @NotBlank @Pattern(regexp = "^\\d{3}-\\d{2}-\\d{4}$", message = "SSN must be in format XXX-XX-XXXX") String ssn,
-    @RequestParam @NotBlank @Pattern(regexp = "^\\d{3}-\\d{2}-\\d{4}$", message = "Social Security Number must be in format XXX-XX-XXXX") String socialSecurityNum,
-    @RequestParam @NotBlank @Pattern(regexp = "^\\d{2}-\\d{7}$", message = "TIN must be in format XX-XXXXXXX") String tin,
-    @RequestParam @NotBlank @Pattern(regexp = "^[0-9\\-\\+\\(\\)\\s]+$", message = "Phone number must contain only valid characters") @Size(max = 20) String phoneNumber,
-    WebRequest request) throws IOException {
+public String debug(
+                    @NotBlank @Pattern(regexp="^[a-zA-Z0-9_-]+$", message="Customer ID must be alphanumeric") @RequestParam String customerId,
+                    @RequestParam int clientId,
+                    @NotBlank @Pattern(regexp="^[a-zA-Z\\s-]+$", message="First name must contain only letters") @RequestParam String firstName,
+                    @NotBlank @Pattern(regexp="^[a-zA-Z\\s-]+$", message="Last name must contain only letters") @RequestParam String lastName,
+                    @NotBlank @Pattern(regexp="^\\d{4}-\\d{2}-\\d{2}$", message="Date must be in YYYY-MM-DD format") @RequestParam String dateOfBirth,
+                    @NotBlank @Pattern(regexp="^\\d{3}-\\d{2}-\\d{4}$", message="SSN must be in XXX-XX-XXXX format") @RequestParam String ssn,
+                    @NotBlank @Pattern(regexp="^\\d{3}-\\d{2}-\\d{4}$", message="Social Security Number must be in XXX-XX-XXXX format") @RequestParam String socialSecurityNum,
+                    @NotBlank @Pattern(regexp="^\\d{2}-\\d{7}$", message="TIN must be in XX-XXXXXXX format") @RequestParam String tin,
+                    @NotBlank @Pattern(regexp="^[0-9-]+$", message="Phone number must contain only digits and hyphens") @RequestParam String phoneNumber,
+                    HttpServletResponse httpResponse,
+                    WebRequest request) throws IOException{
 
-    HttpHeaders responseHeaders = new HttpHeaders();
-    responseHeaders.add("Content-Security-Policy", 
-        "default-src 'none'; style-src 'self'; img-src 'self'; base-uri 'self'; frame-ancestors 'none'");
-    responseHeaders.add("X-Content-Type-Options", "nosniff");
-    responseHeaders.add("X-Frame-Options", "DENY");
-    responseHeaders.add("Content-Type", "text/html; charset=UTF-8");
+  httpResponse.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self'; object-src 'none'");
+  httpResponse.setHeader("X-Content-Type-Options", "nosniff");
+  httpResponse.setHeader("X-XSS-Protection", "1; mode=block");
+  httpResponse.setContentType("text/html; charset=UTF-8");
+  httpResponse.setStatus(HttpStatus.CREATED.value());
 
-    Set<Account> accounts1 = new HashSet<Account>();
-    Customer customer1 = new Customer(customerId, clientId, firstName, lastName, DateTime.parse(dateOfBirth).toDate(),
-                                      ssn, socialSecurityNum, tin, phoneNumber, new Address("Debug str",
-                                      "", "Debug city", "CA", "12345"),
-                                      accounts1);
+  Set<Account> accounts1 = new HashSet<Account>();
+  
+  String safeCustomerId = HtmlUtils.htmlEscape(customerId);
+  String safeFirstName = HtmlUtils.htmlEscape(firstName);
+  String safeLastName = HtmlUtils.htmlEscape(lastName);
+  String safeDateOfBirth = HtmlUtils.htmlEscape(dateOfBirth);
+  String safeSsn = HtmlUtils.htmlEscape(ssn);
+  String safeSocialSecurityNum = HtmlUtils.htmlEscape(socialSecurityNum);
+  String safeTin = HtmlUtils.htmlEscape(tin);
+  String safePhoneNumber = HtmlUtils.htmlEscape(phoneNumber);
+  
+  LocalDate localDate = LocalDate.parse(dateOfBirth, DateTimeFormatter.ISO_LOCAL_DATE);
+  java.util.Date parsedDate = Date.valueOf(localDate);
+  
+  Customer customer1 = new Customer(safeCustomerId, clientId, safeFirstName, safeLastName, parsedDate,
+                                    safeSsn, safeSocialSecurityNum, safeTin, safePhoneNumber, new Address("Debug str",
+                                    "", "Debug city", "CA", "12345"),
+                                    accounts1);
 
-    customerRepository.save(customer1);
-    
-    String htmlTemplate = """
-        <!DOCTYPE html>
-        <html>
+  customerRepository.save(customer1);
+  httpResponse.setHeader("Location", String.format("%s/customers/%s",
+                         request.getContextPath(), customer1.getId()));
+
+  StringBuilder safeOutput = new StringBuilder();
+  safeOutput.append("Customer Created: ID=").append(HtmlUtils.htmlEscape(customer1.getId()))
+            .append(", Name=").append(HtmlUtils.htmlEscape(customer1.getFirstName()))
+            .append(" ").append(HtmlUtils.htmlEscape(customer1.getLastName()))
+            .append(", DOB=").append(HtmlUtils.htmlEscape(safeDateOfBirth))
+            .append(", SSN=").append(HtmlUtils.htmlEscape(customer1.getSsn()))
+            .append(", Phone=").append(HtmlUtils.htmlEscape(customer1.getPhoneNumber()));
+  
+  return safeOutput.toString();
+}
+
         <head><meta charset="UTF-8"><title>Debug Customer</title></head>
         <body>
         <h1>Customer Debug Information</h1>
