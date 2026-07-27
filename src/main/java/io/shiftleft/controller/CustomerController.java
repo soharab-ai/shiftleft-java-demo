@@ -277,87 +277,78 @@ public class CustomerController {
    * @return String
    * @throws IOException
    */
-  @RequestMapping(value = "/debug", method = RequestMethod.GET)
-  public String debug(@RequestParam String customerId,
-					  @RequestParam int clientId,
-					  @RequestParam String firstName,
-                      @RequestParam String lastName,
-                      @RequestParam String dateOfBirth,
-                      @RequestParam String ssn,
-					  @RequestParam String socialSecurityNum,
-                      @RequestParam String tin,
-                      @RequestParam String phoneNumber,
-                      HttpServletResponse httpResponse,
-                     WebRequest request) throws IOException{
+@RequestMapping(value = "/debug", method = RequestMethod.GET)
+public ResponseEntity<Map<String, String>> debug(@RequestParam String customerId,
+                  @RequestParam int clientId,
+                  @RequestParam String firstName,
+                  @RequestParam String lastName,
+                  @RequestParam String dateOfBirth,
+                  @RequestParam String ssn,
+                  @RequestParam String socialSecurityNum,
+                  @RequestParam String tin,
+                  @RequestParam String phoneNumber,
+                  HttpServletResponse httpResponse,
+                  WebRequest request) throws IOException{
 
-    // empty for now, because we debug
-    Set<Account> accounts1 = new HashSet<Account>();
-    //dateofbirth example -> "1982-01-10"
-    Customer customer1 = new Customer(customerId, clientId, firstName, lastName, DateTime.parse(dateOfBirth).toDate(),
-                                      ssn, socialSecurityNum, tin, phoneNumber, new Address("Debug str",
-                                      "", "Debug city", "CA", "12345"),
-                                      accounts1);
+  String sanitizedCustomerId = sanitizeAlphanumeric(customerId);
+  String sanitizedFirstName = sanitizeNames(firstName);
+  String sanitizedLastName = sanitizeNames(lastName);
+  String sanitizedSsn = sanitizeAlphanumeric(ssn);
+  String sanitizedSocialSecurityNum = sanitizeAlphanumeric(socialSecurityNum);
+  String sanitizedTin = sanitizeAlphanumeric(tin);
+  String sanitizedPhoneNumber = sanitizePhoneNumber(phoneNumber);
+  
+  Set<Account> accounts1 = new HashSet<Account>();
+  Customer customer1 = new Customer(sanitizedCustomerId, clientId, sanitizedFirstName, sanitizedLastName, 
+                                    java.sql.Date.valueOf(LocalDate.parse(dateOfBirth)),
+                                    sanitizedSsn, sanitizedSocialSecurityNum, sanitizedTin, sanitizedPhoneNumber, 
+                                    new Address("Debug str", "", "Debug city", "CA", "12345"),
+                                    accounts1);
 
-    customerRepository.save(customer1);
-    httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId()));
+  customerRepository.save(customer1);
+  httpResponse.setStatus(HttpStatus.CREATED.value());
+  httpResponse.setHeader("Location", String.format("%s/customers/%s",
+                         request.getContextPath(), customer1.getId()));
+  
+  httpResponse.setHeader("Content-Security-Policy", 
+      "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; " +
+      "connect-src 'self'; font-src 'self'; object-src 'none'; media-src 'self'; " +
+      "frame-src 'none'; frame-ancestors 'none'; form-action 'self'");
+  httpResponse.setHeader("X-Content-Type-Options", "nosniff");
+  
+  Map<String, String> response = new HashMap<>();
+  response.put("id", customer1.getId());
+  response.put("customerId", customer1.getCustomerId());
+  response.put("firstName", customer1.getFirstName());
+  response.put("lastName", customer1.getLastName());
+  response.put("phoneNumber", customer1.getPhoneNumber());
+  response.put("status", "Customer created successfully");
 
-    return customer1.toString().toLowerCase().replace("script","");
-  }
-
-	/**
-	 * Debug test for saving and reading a customer
-	 *
-	 * @param firstName String
-	 * @param httpResponse
-	 * @param request
-	 * @return void
-	 * @throws IOException
-	 */
-	@RequestMapping(value = "/debugEscaped", method = RequestMethod.GET)
-	public void debugEscaped(@RequestParam String firstName, HttpServletResponse httpResponse,
-					  WebRequest request) throws IOException{
-		String escaped = HtmlUtils.htmlEscape(firstName);
-		System.out.println(escaped);
-		httpResponse.getOutputStream().println(escaped);
-	}
-	/**
-	 * Gets all customers.
-	 *
-	 * @return the customers
-	 */
-	@RequestMapping(value = "/customers", method = RequestMethod.GET)
-	public List<Customer> getCustomers() {
-		return (List<Customer>) customerRepository.findAll();
-	}
+  httpResponse.setContentType("application/json");
+  return ResponseEntity.status(HttpStatus.CREATED).body(response);
+private String sanitizeAlphanumeric(String input) {
+  if (input == null) return "";
+  return input.replaceAll("[^a-zA-Z0-9]", "");
+}
 
 	/**
 	 * Create a new customer and return in response with HTTP 201
 	 *
 	 * @param the
-	 *            customer
-	 * @return created customer
-	 */
-	@RequestMapping(value = { "/customers" }, method = { RequestMethod.POST })
-	public Customer createCustomer(@RequestParam Customer customer, HttpServletResponse httpResponse,
-								   WebRequest request) {
+private String sanitizeNames(String input) {
+  if (input == null) return "";
+  return input.replaceAll("[^a-zA-Z\\s\\-']", "");
+}
 
-		Customer createdcustomer = null;
-		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
 		httpResponse.setHeader("Location",
 				String.format("%s/customers/%s", request.getContextPath(), customer.getId()));
 
-		return createdcustomer;
-	}
+private String sanitizePhoneNumber(String input) {
+  if (input == null) return "";
+  return input.replaceAll("[^0-9\\-()]", "");
+}
 
-	/**
-	 * Update customer with given customer id.
-	 *
-	 * @param customer
-	 *            the customer
-	 */
 	@RequestMapping(value = { "/customers/{customerId}" }, method = { RequestMethod.PUT })
 	public void updateCustomer(@RequestBody Customer customer, @PathVariable("customerId") Long customerId,
 			HttpServletResponse httpResponse) {
