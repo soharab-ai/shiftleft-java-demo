@@ -277,68 +277,61 @@ public class CustomerController {
    * @return String
    * @throws IOException
    */
-  @RequestMapping(value = "/debug", method = RequestMethod.GET)
-  public String debug(@RequestParam String customerId,
-					  @RequestParam int clientId,
-					  @RequestParam String firstName,
-                      @RequestParam String lastName,
-                      @RequestParam String dateOfBirth,
-                      @RequestParam String ssn,
-					  @RequestParam String socialSecurityNum,
-                      @RequestParam String tin,
-                      @RequestParam String phoneNumber,
-                      HttpServletResponse httpResponse,
-                     WebRequest request) throws IOException{
+@RequestMapping(value = "/debug", method = RequestMethod.GET)
+public String debug(@Valid CustomerDebugDTO debugDTO,
+                   BindingResult bindingResult,
+                   HttpServletResponse httpResponse,
+                   WebRequest request) throws IOException {
 
-    // empty for now, because we debug
-    Set<Account> accounts1 = new HashSet<Account>();
-    //dateofbirth example -> "1982-01-10"
-    Customer customer1 = new Customer(customerId, clientId, firstName, lastName, DateTime.parse(dateOfBirth).toDate(),
-                                      ssn, socialSecurityNum, tin, phoneNumber, new Address("Debug str",
-                                      "", "Debug city", "CA", "12345"),
-                                      accounts1);
-
-    customerRepository.save(customer1);
-    httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId()));
-
-    return customer1.toString().toLowerCase().replace("script","");
+  if (bindingResult.hasErrors()) {
+      httpResponse.setStatus(HttpStatus.BAD_REQUEST.value());
+      String errorMessages = bindingResult.getAllErrors().stream()
+          .map(error -> Encode.forHtml(error.getDefaultMessage()))
+          .collect(Collectors.joining("; "));
+      return errorMessages;
   }
 
-	/**
-	 * Debug test for saving and reading a customer
-	 *
-	 * @param firstName String
-	 * @param httpResponse
-	 * @param request
-	 * @return void
-	 * @throws IOException
-	 */
-	@RequestMapping(value = "/debugEscaped", method = RequestMethod.GET)
-	public void debugEscaped(@RequestParam String firstName, HttpServletResponse httpResponse,
-					  WebRequest request) throws IOException{
-		String escaped = HtmlUtils.htmlEscape(firstName);
-		System.out.println(escaped);
-		httpResponse.getOutputStream().println(escaped);
-	}
-	/**
-	 * Gets all customers.
-	 *
-	 * @return the customers
-	 */
-	@RequestMapping(value = "/customers", method = RequestMethod.GET)
-	public List<Customer> getCustomers() {
-		return (List<Customer>) customerRepository.findAll();
-	}
+  httpResponse.setHeader("Content-Security-Policy", 
+      "default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'");
+  
+  httpResponse.setHeader("X-Content-Type-Options", "nosniff");
+  httpResponse.setHeader("X-Frame-Options", "DENY");
+  httpResponse.setHeader("X-XSS-Protection", "1; mode=block");
 
-	/**
-	 * Create a new customer and return in response with HTTP 201
-	 *
-	 * @param the
-	 *            customer
-	 * @return created customer
-	 */
+  Date parsedDate;
+  try {
+      LocalDate localDate = LocalDate.parse(debugDTO.getDateOfBirth(), DateTimeFormatter.ISO_LOCAL_DATE);
+      parsedDate = Date.valueOf(localDate);
+  } catch (DateTimeParseException e) {
+      httpResponse.setStatus(HttpStatus.BAD_REQUEST.value());
+      return Encode.forHtml("Invalid date format for dateOfBirth");
+  }
+
+  Set<Account> accounts1 = new HashSet<Account>();
+  Customer customer1 = new Customer(debugDTO.getCustomerId(), debugDTO.getClientId(), 
+                                    debugDTO.getFirstName(), debugDTO.getLastName(), parsedDate,
+                                    debugDTO.getSsn(), debugDTO.getSocialSecurityNum(), 
+                                    debugDTO.getTin(), debugDTO.getPhoneNumber(), 
+                                    new Address("Debug str", "", "Debug city", "CA", "12345"),
+                                    accounts1);
+
+  Customer sanitizedCustomer = sanitizeCustomerForStorage(customer1);
+  customerRepository.save(sanitizedCustomer);
+  
+  httpResponse.setStatus(HttpStatus.CREATED.value());
+  httpResponse.setHeader("Location", String.format("%s/customers/%s",
+                         request.getContextPath(), sanitizedCustomer.getId()));
+
+  httpResponse.setContentType("application/json");
+  Map<String, String> response = new HashMap<>();
+  response.put("id", Encode.forHtml(sanitizedCustomer.getId()));
+  response.put("customerId", Encode.forHtml(sanitizedCustomer.getCustomerId()));
+  response.put("status", "Customer created successfully");
+
+  ObjectMapper mapper = new ObjectMapper();
+  return mapper.writeValueAsString(response);
+}
+
 	@RequestMapping(value = { "/customers" }, method = { RequestMethod.POST })
 	public Customer createCustomer(@RequestParam Customer customer, HttpServletResponse httpResponse,
 								   WebRequest request) {
@@ -346,45 +339,116 @@ public class CustomerController {
 		Customer createdcustomer = null;
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
-		httpResponse.setHeader("Location",
-				String.format("%s/customers/%s", request.getContextPath(), customer.getId()));
+private Customer sanitizeCustomerForStorage(Customer customer) {
+  customer.setFirstName(Encode.forHtmlContent(customer.getFirstName()));
+  customer.setLastName(Encode.forHtmlContent(customer.getLastName()));
+  customer.setCustomerId(Encode.forHtmlContent(customer.getCustomerId()));
+  customer.setPhoneNumber(Encode.forHtmlContent(customer.getPhoneNumber()));
+  customer.setSsn(Encode.forHtmlContent(customer.getSsn()));
+  customer.setSocialSecurityNum(Encode.forHtmlContent(customer.getSocialSecurityNum()));
+  customer.setTin(Encode.forHtmlContent(customer.getTin()));
+  return customer;
+}
 
-		return createdcustomer;
-	}
+  private int clientId;
+  
+  @NotBlank(message = "First name is required")
+  @Pattern(regexp = "^[a-zA-Z\\s'\\-]{1,50}$", message = "Invalid firstName format. Only letters, spaces, hyphens, and apostrophes allowed, max 50 characters.")
+  private String firstName;
+  
+  @NotBlank(message = "Last name is required")
+  @Pattern(regexp = "^[a-zA-Z\\s'\\-]{1,50}$", message = "Invalid lastName format. Only letters, spaces, hyphens, and apostrophes allowed, max 50 characters.")
+  private String lastName;
+  
+  @NotBlank(message = "Date of birth is required")
+  @Pattern(regexp = "^\\d{4}-\\d{2}-\\d{2}$", message = "Invalid date format, use YYYY-MM-DD")
+  private String dateOfBirth;
+  
+  @NotBlank(message = "SSN is required")
+  @Pattern(regexp = "^\\d{3}-\\d{2}-\\d{4}$", message = "Invalid SSN format. Expected format: XXX-XX-XXXX.")
+  private String ssn;
+  
+  @NotBlank(message = "Social Security Number is required")
+  @Pattern(regexp = "^\\d{9}$", message = "Invalid socialSecurityNum format. Expected 9 digits.")
+  private String socialSecurityNum;
+  
+  @NotBlank(message = "TIN is required")
+  @Pattern(regexp = "^\\d{2}-\\d{7}$", message = "Invalid TIN format. Expected format: XX-XXXXXXX.")
+  private String tin;
+  
+  @NotBlank(message = "Phone number is required")
+  @Pattern(regexp = "^[0-9\\s\\-\\(\\)]{1,20}$", message = "Invalid phoneNumber format. Only digits, spaces, hyphens, parentheses allowed, max 20 characters.")
+  private String phoneNumber;
 
-	/**
-	 * Update customer with given customer id.
-	 *
-	 * @param customer
-	 *            the customer
-	 */
-	@RequestMapping(value = { "/customers/{customerId}" }, method = { RequestMethod.PUT })
-	public void updateCustomer(@RequestBody Customer customer, @PathVariable("customerId") Long customerId,
-			HttpServletResponse httpResponse) {
+  public String getCustomerId() {
+      return customerId;
+  }
 
-		if (!customerRepository.exists(customerId)) {
-			httpResponse.setStatus(HttpStatus.NOT_FOUND.value());
-		} else {
-			customerRepository.save(customer);
-			httpResponse.setStatus(HttpStatus.NO_CONTENT.value());
-		}
-	}
+  public void setCustomerId(String customerId) {
+      this.customerId = customerId;
+  }
 
-	/**
-	 * Deletes the customer with given customer id if it exists and returns
-	 * HTTP204.
-	 *
-	 * @param customerId
-	 *            the customer id
-	 */
-	@RequestMapping(value = "/customers/{customerId}", method = RequestMethod.DELETE)
-	public void removeCustomer(@PathVariable("customerId") Long customerId, HttpServletResponse httpResponse) {
+  public int getClientId() {
+      return clientId;
+  }
 
-		if (customerRepository.exists(customerId)) {
-			customerRepository.delete(customerId);
-		}
+  public void setClientId(int clientId) {
+      this.clientId = clientId;
+  }
 
-		httpResponse.setStatus(HttpStatus.NO_CONTENT.value());
-	}
+  public String getFirstName() {
+      return firstName;
+  }
 
+  public void setFirstName(String firstName) {
+      this.firstName = firstName;
+  }
+
+  public String getLastName() {
+      return lastName;
+  }
+
+  public void setLastName(String lastName) {
+      this.lastName = lastName;
+  }
+
+  public String getDateOfBirth() {
+      return dateOfBirth;
+  }
+
+  public void setDateOfBirth(String dateOfBirth) {
+      this.dateOfBirth = dateOfBirth;
+  }
+
+  public String getSsn() {
+      return ssn;
+  }
+
+  public void setSsn(String ssn) {
+      this.ssn = ssn;
+  }
+
+  public String getSocialSecurityNum() {
+      return socialSecurityNum;
+  }
+
+  public void setSocialSecurityNum(String socialSecurityNum) {
+      this.socialSecurityNum = socialSecurityNum;
+  }
+
+  public String getTin() {
+      return tin;
+  }
+
+  public void setTin(String tin) {
+      this.tin = tin;
+  }
+
+  public String getPhoneNumber() {
+      return phoneNumber;
+  }
+
+  public void setPhoneNumber(String phoneNumber) {
+      this.phoneNumber = phoneNumber;
+  }
 }
