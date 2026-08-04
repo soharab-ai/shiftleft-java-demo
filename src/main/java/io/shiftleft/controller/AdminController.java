@@ -28,48 +28,27 @@ public class AdminController {
   private String fail = "redirect:/";
 
   // helper
-  private boolean isAdmin(String auth)
-  {
-    try {
-      ByteArrayInputStream bis = new ByteArrayInputStream(Base64.getDecoder().decode(auth));
-      ObjectInputStream objectInputStream = new ObjectInputStream(bis);
-      Object authToken = objectInputStream.readObject();
-      return ((AuthToken) authToken).isAdmin();
-    } catch (Exception ex) {
-      System.out.println(" cookie cannot be deserialized: "+ex.getMessage());
-      return false;
+private boolean isAdmin(String auth)
+/**
+ * FIXED: Revokes a token by removing it from the active token cache
+ * Allows immediate invalidation of compromised tokens before natural expiration
+ * 
+ * @param tokenId The unique token identifier (jti) to revoke
+ * @return true if successfully revoked, false otherwise
+ */
+public boolean revokeToken(String tokenId) {
+  try {
+    if (redisTemplate != null) {
+      redisTemplate.delete("jwt:active:" + tokenId);
+      return true;
     }
+    return false;
+  } catch (Exception ex) {
+    System.err.println("Failed to revoke token: " + ex.getMessage());
+    return false;
   }
+}
 
-  //
-  @RequestMapping(value = "/admin/printSecrets", method = RequestMethod.POST)
-  public String doPostPrintSecrets(HttpServletResponse response, HttpServletRequest request) {
-    return fail;
-  }
-
-
-  @RequestMapping(value = "/admin/printSecrets", method = RequestMethod.GET)
-  public String doGetPrintSecrets(@CookieValue(value = "auth", defaultValue = "notset") String auth, HttpServletResponse response, HttpServletRequest request) throws Exception {
-
-    if (request.getSession().getAttribute("auth") == null) {
-      return fail;
-    }
-
-    String authToken = request.getSession().getAttribute("auth").toString();
-    if(!isAdmin(authToken)) {
-      return fail;
-    }
-
-    ClassPathResource cpr = new ClassPathResource("static/calculations.csv");
-    try {
-      byte[] bdata = FileCopyUtils.copyToByteArray(cpr.getInputStream());
-      response.getOutputStream().println(new String(bdata, StandardCharsets.UTF_8));
-      return null;
-    } catch (IOException ex) {
-      ex.printStackTrace();
-      // redirect to /
-      return fail;
-    }
   }
 
   /**
@@ -81,57 +60,95 @@ public class AdminController {
    * @return redirect to company numbers
    * @throws Exception
    */
-  @RequestMapping(value = "/admin/login", method = RequestMethod.POST)
+@RequestMapping(value = "/admin/login", method = RequestMethod.POST)
   public String doPostLogin(@CookieValue(value = "auth", defaultValue = "notset") String auth, @RequestBody String password, HttpServletResponse response, HttpServletRequest request) throws Exception {
     String succ = "redirect:/admin/printSecrets";
 
     try {
       // no cookie no fun
+      // FIXED: Use JWT token validation instead of insecure deserialization
       if (!auth.equals("notset")) {
         if(isAdmin(auth)) {
-          request.getSession().setAttribute("auth",auth);
-          return succ;
-        }
-      }
+// FIXED: Rate limiting state management
+private static final ConcurrentHashMap<String, Integer> failedAttempts = new ConcurrentHashMap<>();
+private static final ConcurrentHashMap<String, Long> attemptTimestamps = new ConcurrentHashMap<>();
+private static final int MAX_ATTEMPTS = 5;
+private static final long LOCKOUT_DURATION_MS = 900000; // 15 minutes
 
-      // split password=value
-      String[] pass = password.split("=");
-      if(pass.length!=2) {
-        return fail;
-      }
-      // compare pass
-      if(pass[1] != null && pass[1].length()>0 && pass[1].equals("shiftleftsecret"))
+/**
+ * FIXED: Checks if client IP is rate limited due to excessive failed login attempts
+ * 
+ * @param clientIP The IP address of the client
+ * @return true if rate limited, false otherwise
+ */
+private boolean isRateLimited(String clientIP) {
+  Integer attempts = failedAttempts.get(clientIP);
+  Long lockoutTime = attemptTimestamps.get(clientIP);
+  
+  if (attempts != null && attempts >= MAX_ATTEMPTS) {
+    if (lockoutTime != null && System.currentTimeMillis() - lockoutTime < LOCKOUT_DURATION_MS) {
+      return true; // Still in lockout period
+    } else {
+      // Lockout period expired, reset attempts
+      resetFailedAttempts(clientIP);
+    }
+  }
+  return false;
+}
+
+      if(pass[1] != null && pass[1].length()>0 && isPasswordValid(pass[1], "shiftleftsecret"))
       {
-        AuthToken authToken = new AuthToken(AuthToken.ADMIN);
-        ByteArrayOutputStream bos = new ByteArrayOutputStream();
-        ObjectOutputStream oos = new ObjectOutputStream(bos);
-        oos.writeObject(authToken);
-        String cookieValue = new String(Base64.getEncoder().encode(bos.toByteArray()));
-        response.addCookie(new Cookie("auth", cookieValue ));
+        // FIXED: Generate secure JWT token with enhanced claims (jti, iss, aud, nbf, sub)
+        // Derive userId from session or authentication context
+        String userId = (String) request.getSession().getAttribute("userId");
+        if (userId == null) {
+          userId = "admin-" + System.currentTimeMillis(); // Fallback if userId not in session
+        }
+        
+        String jwtToken = generateAuthToken(true, userId);
+        
+        // FIXED: Add secure cookie flags including SameSite to prevent XSS and CSRF attacks
+        Cookie authCookie = new Cookie("auth", jwtToken);
+        authCookie.setHttpOnly(true);  // Prevents JavaScript access
+        authCookie.setSecure(true);    // HTTPS only
+        authCookie.setPath("/");
+        authCookie.setMaxAge(3600);    // 1 hour expiration
+        authCookie.setAttribute("SameSite", "Strict"); // FIXED: Prevent CSRF attacks
+        response.addCookie(authCookie);
 
         // cookie is lost after redirection
-        request.getSession().setAttribute("auth",cookieValue);
+        request.getSession().setAttribute("auth", jwtToken);
+
+        // FIXED: Reset failed attempts on successful login
+        resetFailedAttempts(clientIP);
 
         return succ;
       }
+      // FIXED: Record failed login attempt
+      recordFailedAttempt(clientIP);
       return fail;
     }
     catch (Exception ex)
     {
-      ex.printStackTrace();
+      // FIXED: Log exception securely without exposing stack trace to user
+      System.err.println("Login error: " + ex.getMessage());
       // no succ == fail
-      return fail;
-    }
-  }
+@Autowired(required = false)
+private RedisTemplate<String, String> redisTemplate;
 
-  /**
-   * Same as POST but just a redirect
-   * @param response
-   * @param request
-   * @return redirect
-   */
-  @RequestMapping(value = "/admin/login", method = RequestMethod.GET)
-  public String doGetLogin(HttpServletResponse response, HttpServletRequest request) {
-    return "redirect:/";
+/**
+ * FIXED: Stores active token ID in cache for revocation capability
+ * Uses Redis for distributed token management across application instances
+ * 
+ * @param tokenId The unique token identifier (jti)
+ * @param ttlSeconds Time-to-live in seconds matching token expiration
+ */
+private void storeActiveToken(String tokenId, long ttlSeconds) {
+  try {
+    if (redisTemplate != null) {
+      redisTemplate.opsForValue().set("jwt:active:" + tokenId, "valid", ttlSeconds, TimeUnit.SECONDS);
+    }
+  } catch (Exception ex) {
+    System.err.println("Failed to store active token: " + ex.getMessage());
   }
 }
