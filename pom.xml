@@ -74,7 +74,7 @@
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
-        </dependency>
+            <version>2.7.9.2</version>
     </dependencies>
     <properties>
         <java.version>1.8</java.version>
