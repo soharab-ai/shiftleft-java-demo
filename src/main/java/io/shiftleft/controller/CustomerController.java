@@ -278,33 +278,125 @@ public class CustomerController {
    * @throws IOException
    */
   @RequestMapping(value = "/debug", method = RequestMethod.GET)
-  public String debug(@RequestParam String customerId,
-					  @RequestParam int clientId,
-					  @RequestParam String firstName,
-                      @RequestParam String lastName,
-                      @RequestParam String dateOfBirth,
-                      @RequestParam String ssn,
-					  @RequestParam String socialSecurityNum,
-                      @RequestParam String tin,
-                      @RequestParam String phoneNumber,
-                      HttpServletResponse httpResponse,
-                     WebRequest request) throws IOException{
+// NOTE: This debug endpoint should be removed in production environments
+@RequestMapping(value = "/debug", method = RequestMethod.GET, produces = "application/json")
+@Validated
+public ResponseEntity<?> debug(@RequestParam String customerId,
+                   @RequestParam int clientId,
+                   @RequestParam String firstName,
+                   @RequestParam String lastName,
+                   @RequestParam String dateOfBirth,
+                   @RequestParam String ssn,
+                   @RequestParam String socialSecurityNum,
+                   @RequestParam String tin,
+                   @RequestParam String phoneNumber,
+                   HttpServletResponse httpResponse,
+                   WebRequest request) throws IOException {
 
-    // empty for now, because we debug
+    // Input validation for all parameters
+    if (!validateCustomerId(customerId) || 
+        !validateName(firstName) || 
+        !validateName(lastName) || 
+        !validateDateFormat(dateOfBirth) || 
+        !validateSSN(ssn) || 
+        !validateSSN(socialSecurityNum) || 
+        !validateTIN(tin) || 
+        !validatePhoneNumber(phoneNumber)) {
+        return new ResponseEntity<>("Invalid input parameters", HttpStatus.BAD_REQUEST);
+    }
+    
+    // Sanitize all inputs to prevent XSS
+    firstName = HtmlUtils.htmlEscape(firstName);
+    lastName = HtmlUtils.htmlEscape(lastName);
+    ssn = HtmlUtils.htmlEscape(ssn);
+    socialSecurityNum = HtmlUtils.htmlEscape(socialSecurityNum);
+    tin = HtmlUtils.htmlEscape(tin);
+    phoneNumber = HtmlUtils.htmlEscape(phoneNumber);
+    
+    // Set Content Security Policy header
+    httpResponse.setHeader("Content-Security-Policy", "default-src 'self'");
+    
+    // Create customer with sanitized inputs
     Set<Account> accounts1 = new HashSet<Account>();
-    //dateofbirth example -> "1982-01-10"
-    Customer customer1 = new Customer(customerId, clientId, firstName, lastName, DateTime.parse(dateOfBirth).toDate(),
-                                      ssn, socialSecurityNum, tin, phoneNumber, new Address("Debug str",
-                                      "", "Debug city", "CA", "12345"),
-                                      accounts1);
+    try {
+        LocalDate parsedDate = LocalDate.parse(dateOfBirth);
+        java.util.Date utilDate = java.sql.Date.valueOf(parsedDate);
+        
+        Customer customer1 = new Customer(customerId, clientId, firstName, lastName, utilDate,
+                                        ssn, socialSecurityNum, tin, phoneNumber, new Address("Debug str",
+                                        "", "Debug city", "CA", "12345"),
+                                        accounts1);
 
-    customerRepository.save(customer1);
-    httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId()));
+        customerRepository.save(customer1);
+        httpResponse.setStatus(HttpStatus.CREATED.value());
+        httpResponse.setHeader("Location", String.format("%s/customers/%s",
+                            request.getContextPath(), customer1.getId()));
 
-    return customer1.toString().toLowerCase().replace("script","");
-  }
+        // Return DTO with only necessary fields instead of entire entity (principle of least privilege)
+        CustomerDTO customerDTO = new CustomerDTO(
+            customer1.getId(), 
+            customer1.getFirstName(), 
+            customer1.getLastName(),
+            customer1.getPhoneNumber()
+        );
+        
+        return new ResponseEntity<>(customerDTO, HttpStatus.CREATED);
+    } catch (Exception e) {
+        return new ResponseEntity<>("Error processing request: " + HtmlUtils.htmlEscape(e.getMessage()), 
+                                   HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+}
+
+// Helper methods for input validation
+private boolean validateCustomerId(String customerId) {
+    return customerId != null && customerId.matches("^[a-zA-Z0-9-_]{1,50}$");
+}
+
+private boolean validateName(String name) {
+    return name != null && name.matches("^[a-zA-Z\\s'-]{1,50}$");
+}
+
+private boolean validateDateFormat(String date) {
+    try {
+        LocalDate.parse(date);
+        return true;
+    } catch (DateTimeParseException e) {
+        return false;
+    }
+}
+
+private boolean validateSSN(String ssn) {
+    return ssn == null || ssn.isEmpty() || Pattern.matches("^\\d{3}-\\d{2}-\\d{4}$", ssn);
+}
+
+private boolean validateTIN(String tin) {
+    return tin == null || tin.isEmpty() || Pattern.matches("^\\d{2}-\\d{7}$", tin);
+}
+
+private boolean validatePhoneNumber(String phoneNumber) {
+    return phoneNumber == null || phoneNumber.isEmpty() || 
+           Pattern.matches("^\\(\\d{3}\\)\\s\\d{3}-\\d{4}$|^\\d{3}-\\d{3}-\\d{4}$", phoneNumber);
+}
+
+// Data Transfer Object class to limit exposed information
+private static class CustomerDTO {
+    private final String id;
+    private final String firstName;
+    private final String lastName;
+    private final String phoneNumber;
+    
+    public CustomerDTO(String id, String firstName, String lastName, String phoneNumber) {
+        this.id = id;
+        this.firstName = firstName;
+        this.lastName = lastName;
+        this.phoneNumber = phoneNumber;
+    }
+    
+    public String getId() { return id; }
+    public String getFirstName() { return firstName; }
+    public String getLastName() { return lastName; }
+    public String getPhoneNumber() { return phoneNumber; }
+}
 
 	/**
 	 * Debug test for saving and reading a customer
